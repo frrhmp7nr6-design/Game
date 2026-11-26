@@ -5,7 +5,6 @@ import { zombies, fxList, WEAPONS } from './combat.js';
 function drawTile(ctx, wx, wy, camX, camY, type) {
   const p = worldToScreen(wx, wy, camX, camY);
 
-  // Screen-space culling so 64x64 map runs at locked 60fps
   if (p.x < -TILE_W || p.x > window.innerWidth + TILE_W || p.y < -TILE_H * 2 || p.y > window.innerHeight + TILE_H) {
     return;
   }
@@ -20,7 +19,7 @@ function drawTile(ctx, wx, wy, camX, camY, type) {
   if (type === 1) {
     ctx.fillStyle = (wx + wy) % 2 === 0 ? '#334155' : '#2d3a4f';
   } else if (type === 3) {
-    ctx.fillStyle = (wx + wy) % 2 === 0 ? '#27272a' : '#202023'; // Asphalt road
+    ctx.fillStyle = (wx + wy) % 2 === 0 ? '#27272a' : '#202023';
   } else {
     ctx.fillStyle = (wx + wy) % 2 === 0 ? '#1b2822' : '#17221d';
   }
@@ -63,21 +62,18 @@ function drawTile(ctx, wx, wy, camX, camY, type) {
 function drawRadioTower(ctx, camX, camY) {
   const pos = worldToScreen(radioTower.x, radioTower.y, camX, camY);
 
-  // Beacon ring
   ctx.beginPath();
   ctx.ellipse(pos.x, pos.y + 4, 28, 14, 0, 0, Math.PI * 2);
   ctx.strokeStyle = radioTower.evacActive ? '#22c55e' : '#38bdf8';
   ctx.lineWidth = 2.5;
   ctx.stroke();
 
-  // Generator base
   ctx.fillStyle = '#0284c7';
   ctx.fillRect(pos.x - 12, pos.y - 24, 24, 24);
   ctx.strokeStyle = '#0f172a';
   ctx.lineWidth = 2;
   ctx.strokeRect(pos.x - 12, pos.y - 24, 24, 24);
 
-  // Antenna mast
   ctx.strokeStyle = '#cbd5e1';
   ctx.lineWidth = 3;
   ctx.beginPath();
@@ -85,7 +81,6 @@ function drawRadioTower(ctx, camX, camY) {
   ctx.lineTo(pos.x, pos.y - 68);
   ctx.stroke();
 
-  // Blinking beacon tip
   const pulse = Math.sin(performance.now() / 220) > 0;
   ctx.fillStyle = radioTower.evacActive ? '#4ade80' : pulse ? '#ef4444' : '#7f1d1d';
   ctx.beginPath();
@@ -97,7 +92,6 @@ function drawLoot(ctx, item, camX, camY, isHighlighted) {
   const pos = worldToScreen(item.x, item.y, camX, camY);
 
   if (item.type === 'part') {
-    // Glowing cyan ring for mission radio parts
     ctx.beginPath();
     ctx.ellipse(pos.x, pos.y + 4, 15, 7.5, 0, 0, Math.PI * 2);
     ctx.strokeStyle = 'rgba(34, 211, 238, 0.75)';
@@ -123,16 +117,35 @@ function drawLoot(ctx, item, camX, camY, isHighlighted) {
 }
 
 function drawZombie(ctx, z, camX, camY) {
-  const pos = worldToScreen(z.x, z.y, camX, camY);
+  const lungeOffset = z.lungeTimer > 0 ? Math.sin((z.lungeTimer / 0.25) * Math.PI) * 0.28 : 0;
+  const drawX = z.x + Math.cos(z.facing) * lungeOffset;
+  const drawY = z.y + Math.sin(z.facing) * lungeOffset;
+  const pos = worldToScreen(drawX, drawY, camX, camY);
 
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+  const bob = Math.abs(Math.sin(z.walkPhase || 0)) * 3.5;
+  const sway = Math.sin(z.walkPhase || 0) * 0.14;
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.42)';
   ctx.beginPath();
   ctx.ellipse(pos.x, pos.y + 2, 12, 6, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.fillStyle = z.hitFlash > 0 ? '#fca5a5' : '#4d7c0f';
+  const screenDir = worldToScreen(drawX + Math.cos(z.facing), drawY + Math.sin(z.facing), 0, 0);
+  const screenOrig = worldToScreen(drawX, drawY, 0, 0);
+  const sAng = Math.atan2(screenDir.y - screenOrig.y, screenDir.x - screenOrig.x);
+
+  ctx.strokeStyle = z.lungeTimer > 0 ? '#ef4444' : '#65a30d';
+  ctx.lineWidth = 3.5;
   ctx.beginPath();
-  ctx.ellipse(pos.x, pos.y - 12, 9, 17, 0, 0, Math.PI * 2);
+  ctx.moveTo(pos.x, pos.y - 14 - bob);
+  ctx.lineTo(pos.x + Math.cos(sAng - 0.35) * 14, pos.y - 14 - bob + Math.sin(sAng - 0.35) * 9);
+  ctx.moveTo(pos.x, pos.y - 14 - bob);
+  ctx.lineTo(pos.x + Math.cos(sAng + 0.35) * 14, pos.y - 14 - bob + Math.sin(sAng + 0.35) * 9);
+  ctx.stroke();
+
+  ctx.fillStyle = z.hitFlash > 0 ? '#fca5a5' : z.lungeTimer > 0 ? '#84cc16' : '#4d7c0f';
+  ctx.beginPath();
+  ctx.ellipse(pos.x, pos.y - 12 - bob, 9, 17, sway, 0, Math.PI * 2);
   ctx.fill();
   ctx.strokeStyle = '#1a2e05';
   ctx.lineWidth = 2;
@@ -141,9 +154,9 @@ function drawZombie(ctx, z, camX, camY) {
   if (z.hp < z.maxHp) {
     const bw = 26;
     ctx.fillStyle = '#0f172a';
-    ctx.fillRect(pos.x - bw / 2, pos.y - 36, bw, 4);
+    ctx.fillRect(pos.x - bw / 2, pos.y - 38 - bob, bw, 4);
     ctx.fillStyle = '#ef4444';
-    ctx.fillRect(pos.x - bw / 2, pos.y - 36, bw * (z.hp / z.maxHp), 4);
+    ctx.fillRect(pos.x - bw / 2, pos.y - 38 - bob, bw * (z.hp / z.maxHp), 4);
   }
 }
 
@@ -151,7 +164,6 @@ function drawPlayer(ctx, player, camX, camY, objectiveTarget) {
   const pos = worldToScreen(player.x, player.y, camX, camY);
   const weapon = WEAPONS[player.equippedWeapon] || WEAPONS.fists;
 
-  // Vision Cone
   const coneRadius = weapon.type === 'ranged' ? 290 : 210;
   ctx.save();
   ctx.beginPath();
@@ -165,7 +177,6 @@ function drawPlayer(ctx, player, camX, camY, objectiveTarget) {
   ctx.fill();
   ctx.restore();
 
-  // Objective Compass Arrow orbiting player
   if (objectiveTarget) {
     const tPos = worldToScreen(objectiveTarget.x, objectiveTarget.y, camX, camY);
     const dist = Math.hypot(tPos.x - pos.x, tPos.y - pos.y);
@@ -189,14 +200,12 @@ function drawPlayer(ctx, player, camX, camY, objectiveTarget) {
     }
   }
 
-  // Ground shadow
   ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
   ctx.beginPath();
   ctx.ellipse(pos.x, pos.y + 2, 12, 6, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Survivor body
-  ctx.fillStyle = player.isSprinting ? '#7dd3fc' : '#38bdf8';
+  ctx.fillStyle = player.hurtFlash > 0 ? '#f87171' : player.isSprinting ? '#7dd3fc' : '#38bdf8';
   ctx.beginPath();
   ctx.ellipse(pos.x, pos.y - 12, 9, 17, 0, 0, Math.PI * 2);
   ctx.fill();
@@ -204,7 +213,6 @@ function drawPlayer(ctx, player, camX, camY, objectiveTarget) {
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Facing dot
   ctx.fillStyle = '#fef08a';
   ctx.beginPath();
   ctx.arc(
@@ -231,6 +239,23 @@ function drawCombatFx(ctx, camX, camY) {
       ctx.moveTo(from.x, from.y - 12);
       ctx.lineTo(to.x, to.y - 12);
       ctx.stroke();
+      ctx.restore();
+    } else if (fx.type === 'bite') {
+      const rise = (1 - alpha) * 18;
+      ctx.save();
+      ctx.strokeStyle = `rgba(239, 68, 68, ${alpha})`;
+      ctx.lineWidth = 3.5;
+      ctx.beginPath();
+      ctx.moveTo(to.x - 12, to.y - 24);
+      ctx.lineTo(to.x + 12, to.y - 6);
+      ctx.moveTo(to.x + 12, to.y - 24);
+      ctx.lineTo(to.x - 12, to.y - 6);
+      ctx.stroke();
+
+      ctx.font = 'bold 14px -apple-system, sans-serif';
+      ctx.fillStyle = `rgba(248, 113, 113, ${alpha})`;
+      ctx.textAlign = 'center';
+      ctx.fillText('-12 HP', to.x, to.y - 34 - rise);
       ctx.restore();
     } else {
       ctx.save();
@@ -268,13 +293,11 @@ export function renderFrame(ctx, player, nearbyLootIndex, objectiveTarget) {
   const camX = (player.x - player.y) * (TILE_W / 2);
   const camY = (player.x + player.y) * (TILE_H / 2);
 
-  // Only iterate tiles within a 22-tile window around the player
   const minX = Math.max(0, Math.floor(player.x - 22));
   const maxX = Math.min(MAP_SIZE - 1, Math.ceil(player.x + 22));
   const minY = Math.max(0, Math.floor(player.y - 22));
   const maxY = Math.min(MAP_SIZE - 1, Math.ceil(player.y + 22));
 
-  // Draw floors first
   for (let sum = minX + minY; sum <= maxX + maxY; sum++) {
     for (let x = minX; x <= maxX; x++) {
       const y = sum - x;
@@ -284,7 +307,6 @@ export function renderFrame(ctx, player, nearbyLootIndex, objectiveTarget) {
     }
   }
 
-  // Depth-sort visible walls, tower, loot, zombies, and player
   const renderables = [];
   for (let y = minY; y <= maxY; y++) {
     for (let x = minX; x <= maxX; x++) {
@@ -323,4 +345,21 @@ export function renderFrame(ctx, player, nearbyLootIndex, objectiveTarget) {
 
   drawCombatFx(ctx, camX, camY);
   drawJoysticks(ctx);
+
+  if (player.hurtFlash > 0) {
+    const alpha = (player.hurtFlash / 0.35) * 0.42;
+    const rad = Math.max(window.innerWidth, window.innerHeight) * 0.65;
+    const vig = ctx.createRadialGradient(
+      window.innerWidth / 2,
+      window.innerHeight / 2,
+      rad * 0.45,
+      window.innerWidth / 2,
+      window.innerHeight / 2,
+      rad
+    );
+    vig.addColorStop(0, 'rgba(220, 38, 38, 0)');
+    vig.addColorStop(1, `rgba(220, 38, 38, ${alpha})`);
+    ctx.fillStyle = vig;
+    ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+  }
 }
