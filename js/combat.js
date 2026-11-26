@@ -41,32 +41,32 @@ export const WEAPONS = {
 
 export const zombies = [
   // Near starter cabin & north road
-  { id: 1, x: 14.5, y: 12.5, hp: 100, maxHp: 100, speed: 1.65, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 0, wanderAng: 1.2 },
-  { id: 2, x: 17.5, y: 22.5, hp: 100, maxHp: 100, speed: 1.75, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 1, wanderAng: 3.1 },
-  { id: 3, x: 24.5, y: 21.5, hp: 100, maxHp: 100, speed: 1.85, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 2, wanderAng: 0.4 },
+  { id: 1, x: 14.5, y: 12.5, hp: 100, maxHp: 100, speed: 1.85, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 2.2, walkPhase: 0, wanderAng: 2.2, turnTimer: 1.2, aggro: false },
+  { id: 2, x: 17.5, y: 22.5, hp: 100, maxHp: 100, speed: 1.85, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 3.1, walkPhase: 1, wanderAng: 3.1, turnTimer: 0.8, aggro: false },
+  { id: 3, x: 24.5, y: 21.5, hp: 100, maxHp: 100, speed: 1.9, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0.4, walkPhase: 2, wanderAng: 0.4, turnTimer: 1.5, aggro: false },
 
   // Main street intersection
-  { id: 4, x: 29.5, y: 29.5, hp: 100, maxHp: 100, speed: 1.9, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 0.5, wanderAng: 2.2 },
-  { id: 5, x: 31.5, y: 26.5, hp: 100, maxHp: 100, speed: 1.8, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 1.5, wanderAng: 4.5 },
+  { id: 4, x: 29.5, y: 29.5, hp: 100, maxHp: 100, speed: 1.95, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 2.2, walkPhase: 0.5, wanderAng: 2.2, turnTimer: 1.0, aggro: false },
+  { id: 5, x: 31.5, y: 26.5, hp: 100, maxHp: 100, speed: 1.85, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 4.5, walkPhase: 1.5, wanderAng: 4.5, turnTimer: 1.7, aggro: false },
 
   // Hardware store guards
-  { id: 6, x: 44.5, y: 15.5, hp: 110, maxHp: 110, speed: 1.95, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 2.5, wanderAng: 1.8 },
-  { id: 7, x: 48.5, y: 13.5, hp: 110, maxHp: 110, speed: 1.85, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 0.2, wanderAng: 5.0 },
-  { id: 8, x: 38.5, y: 16.5, hp: 100, maxHp: 100, speed: 1.75, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 1.8, wanderAng: 0.9 },
+  { id: 6, x: 44.5, y: 15.5, hp: 110, maxHp: 110, speed: 2.0, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 1.8, walkPhase: 2.5, wanderAng: 1.8, turnTimer: 1.1, aggro: false },
+  { id: 7, x: 48.5, y: 13.5, hp: 110, maxHp: 110, speed: 1.9, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 5.0, walkPhase: 0.2, wanderAng: 5.0, turnTimer: 1.4, aggro: false },
+  { id: 8, x: 38.5, y: 16.5, hp: 100, maxHp: 100, speed: 1.85, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0.9, walkPhase: 1.8, wanderAng: 0.9, turnTimer: 0.9, aggro: false },
 
   // Diner & central town
-  { id: 9, x: 39.5, y: 38.5, hp: 100, maxHp: 100, speed: 1.85, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 2.2, wanderAng: 3.3 },
-  { id: 10, x: 33.5, y: 36.5, hp: 100, maxHp: 100, speed: 1.9, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 0.7, wanderAng: 1.1 },
+  { id: 9, x: 39.5, y: 38.5, hp: 100, maxHp: 100, speed: 1.9, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 3.3, walkPhase: 2.2, wanderAng: 3.3, turnTimer: 1.3, aggro: false },
+  { id: 10, x: 33.5, y: 36.5, hp: 100, maxHp: 100, speed: 1.95, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 1.1, walkPhase: 0.7, wanderAng: 1.1, turnTimer: 1.6, aggro: false },
 
   // Police outpost guards
-  { id: 11, x: 15.5, y: 46.5, hp: 120, maxHp: 120, speed: 2.0, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 1.1, wanderAng: 2.7 },
-  { id: 12, x: 18.5, y: 48.5, hp: 120, maxHp: 120, speed: 1.95, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 2.9, wanderAng: 4.1 },
-  { id: 13, x: 22.5, y: 44.5, hp: 100, maxHp: 100, speed: 1.85, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 0.4, wanderAng: 0.2 },
+  { id: 11, x: 15.5, y: 46.5, hp: 120, maxHp: 120, speed: 2.05, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 2.7, walkPhase: 1.1, wanderAng: 2.7, turnTimer: 1.2, aggro: false },
+  { id: 12, x: 18.5, y: 48.5, hp: 120, maxHp: 120, speed: 2.0, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 4.1, walkPhase: 2.9, wanderAng: 4.1, turnTimer: 0.7, aggro: false },
+  { id: 13, x: 22.5, y: 44.5, hp: 100, maxHp: 100, speed: 1.9, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0.2, walkPhase: 0.4, wanderAng: 0.2, turnTimer: 1.5, aggro: false },
 
   // South road & Evac perimeter
-  { id: 14, x: 30.5, y: 46.5, hp: 100, maxHp: 100, speed: 1.95, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 1.4, wanderAng: 3.9 },
-  { id: 15, x: 44.5, y: 50.5, hp: 110, maxHp: 110, speed: 2.0, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 2.1, wanderAng: 2.4 },
-  { id: 16, x: 50.5, y: 44.5, hp: 110, maxHp: 110, speed: 2.0, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 0.9, wanderAng: 5.5 }
+  { id: 14, x: 30.5, y: 46.5, hp: 100, maxHp: 100, speed: 2.0, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 3.9, walkPhase: 1.4, wanderAng: 3.9, turnTimer: 1.1, aggro: false },
+  { id: 15, x: 44.5, y: 50.5, hp: 110, maxHp: 110, speed: 2.05, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 2.4, walkPhase: 2.1, wanderAng: 2.4, turnTimer: 1.3, aggro: false },
+  { id: 16, x: 50.5, y: 44.5, hp: 110, maxHp: 110, speed: 2.05, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 5.5, walkPhase: 0.9, wanderAng: 5.5, turnTimer: 1.0, aggro: false }
 ];
 
 export const fxList = [];
@@ -86,13 +86,15 @@ export function spawnEvacHorde() {
       y: sy,
       hp: 100,
       maxHp: 100,
-      speed: 2.15,
+      speed: 2.2,
       attackCd: 0,
       hitFlash: 0,
       lungeTimer: 0,
       facing: 0,
       walkPhase: 0,
       wanderAng: 0,
+      turnTimer: 1,
+      aggro: true,
       forcedAggro: true
     });
   }
@@ -119,7 +121,7 @@ export function hasLineOfSight(x1, y1, x2, y2) {
 }
 
 function canZombieWalkTo(nx, ny) {
-  const r = 0.26;
+  const r = 0.25;
   const corners = [
     [nx - r, ny - r],
     [nx + r, ny - r],
@@ -209,33 +211,53 @@ export function updateCombat(dt, player) {
     }
 
     const dist = Math.hypot(player.x - z.x, player.y - z.y);
-    const aggroRange = z.forcedAggro ? 22 : 7.5;
+    const sightRange = z.forcedAggro ? 24 : 8.5;
+    const canSeeOrHear =
+      z.forcedAggro ||
+      (dist < sightRange && hasLineOfSight(z.x, z.y, player.x, player.y)) ||
+      dist < 4.5;
 
-    if (dist < aggroRange && dist > 0.72 && (z.forcedAggro || hasLineOfSight(z.x, z.y, player.x, player.y))) {
+    z.aggro = canSeeOrHear;
+
+    if (canSeeOrHear) {
       const ang = Math.atan2(player.y - z.y, player.x - z.x);
       z.facing = ang;
-      z.walkPhase += dt * 11;
-      const vx = Math.cos(ang) * z.speed * dt;
-      const vy = Math.sin(ang) * z.speed * dt;
-      if (canZombieWalkTo(z.x + vx, z.y)) z.x += vx;
-      if (canZombieWalkTo(z.x, z.y + vy)) z.y += vy;
-    } else if (dist >= aggroRange) {
-      if (Math.random() < 0.02) z.wanderAng += (Math.random() - 0.5) * 2.5;
+      if (dist > 0.72) {
+        z.walkPhase += dt * 13;
+        const vx = Math.cos(ang) * z.speed * dt;
+        const vy = Math.sin(ang) * z.speed * dt;
+        if (canZombieWalkTo(z.x + vx, z.y)) z.x += vx;
+        if (canZombieWalkTo(z.x, z.y + vy)) z.y += vy;
+      }
+    } else {
+      // Active patrol walk so zombies visibly roam around buildings
+      z.turnTimer -= dt;
+      if (z.turnTimer <= 0) {
+        z.wanderAng += (Math.random() - 0.5) * 2.4;
+        z.turnTimer = 1.2 + Math.random() * 1.4;
+      }
       z.facing = z.wanderAng;
-      z.walkPhase += dt * 5;
-      const vx = Math.cos(z.wanderAng) * 0.45 * dt;
-      const vy = Math.sin(z.wanderAng) * 0.45 * dt;
+      z.walkPhase += dt * 8;
+      const vx = Math.cos(z.wanderAng) * 1.05 * dt;
+      const vy = Math.sin(z.wanderAng) * 1.05 * dt;
+
+      let blocked = false;
       if (canZombieWalkTo(z.x + vx, z.y)) z.x += vx;
-      else z.wanderAng += Math.PI;
+      else blocked = true;
       if (canZombieWalkTo(z.x, z.y + vy)) z.y += vy;
-      else z.wanderAng += Math.PI;
+      else blocked = true;
+
+      if (blocked) {
+        z.wanderAng += Math.PI * 0.75;
+        z.turnTimer = 1.0;
+      }
     }
 
     // Bite attack with visual lunge & red screen flash
-    if (dist <= 0.9 && z.attackCd === 0) {
+    if (dist <= 0.92 && z.attackCd === 0) {
       player.hp = Math.max(0, player.hp - 12);
       player.hurtFlash = 0.35;
-      z.attackCd = 1.15;
+      z.attackCd = 1.1;
       z.lungeTimer = 0.25;
       z.facing = Math.atan2(player.y - z.y, player.x - z.x);
 
