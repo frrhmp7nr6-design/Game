@@ -1,7 +1,7 @@
-import { worldLoot } from './map.js';
+import { worldLoot, radioTower } from './map.js';
 import { WEAPONS } from './combat.js';
 
-export const BAG_CAPACITY = 6;
+export const BAG_CAPACITY = 8;
 export const inventory = [];
 
 let toastTimer = null;
@@ -11,7 +11,7 @@ export function showToast(msg) {
   toastEl.textContent = msg;
   toastEl.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1800);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2000);
 }
 
 export function initInventory(player) {
@@ -38,7 +38,6 @@ export function renderBag(player) {
   bagSlotsLabel.textContent = `${inventory.length} / ${BAG_CAPACITY} Slots`;
   bagList.innerHTML = '';
 
-  // Show currently equipped weapon header inside bag
   const eqName = WEAPONS[player.equippedWeapon]?.name || 'Fists';
   const eqBanner = document.createElement('div');
   eqBanner.style.cssText = 'font-size:11px; color:#38bdf8; font-weight:700; padding-bottom:4px;';
@@ -48,7 +47,7 @@ export function renderBag(player) {
   if (inventory.length === 0) {
     bagList.insertAdjacentHTML(
       'beforeend',
-      `<div style="color:#64748b; font-size:12px; text-align:center; padding:12px 0;">Bag is empty. Walk near supplies and tap GRAB.</div>`
+      `<div style="color:#64748b; font-size:12px; text-align:center; padding:12px 0;">Bag is empty. Scavenge buildings for Radio Parts & supplies.</div>`
     );
     return;
   }
@@ -60,10 +59,11 @@ export function renderBag(player) {
     let desc = '';
     if (item.type === 'food') desc = `+${item.hunger}% Fullness, +${item.hp}% HP`;
     else if (item.type === 'med') desc = `+${item.hp}% Health`;
+    else if (item.type === 'part') desc = 'Mission Item • Take to SE Radio Tower';
     else if (item.type === 'weapon') {
       const w = WEAPONS[item.weaponId];
       desc = `${w.damage} DMG • ${w.type === 'ranged' ? 'Ranged' : 'Melee'}`;
-    } else desc = 'Material';
+    }
 
     const isEquipped = item.type === 'weapon' && player.equippedWeapon === item.weaponId;
     const canUse = item.type === 'food' || item.type === 'med' || (item.type === 'weapon' && !isEquipped);
@@ -71,7 +71,7 @@ export function renderBag(player) {
 
     row.innerHTML = `
       <div class="bag-item-info">
-        <span class="bag-item-name">${item.name} ${isEquipped ? '<span style="color:#38bdf8;font-size:10px;">(ACTIVE)</span>' : ''}</span>
+        <span class="bag-item-name" style="${item.type === 'part' ? 'color:#22d3ee;' : ''}">${item.name} ${isEquipped ? '<span style="color:#38bdf8;font-size:10px;">(ACTIVE)</span>' : ''}</span>
         <span class="bag-item-sub">${desc}</span>
       </div>
       <div class="bag-btns">
@@ -105,8 +105,9 @@ export function grabLootAt(player, lootIndex) {
   inventory.push(item);
   worldLoot.splice(lootIndex, 1);
 
-  // Auto-equip if picking up a weapon while unarmed
-  if (item.type === 'weapon' && player.equippedWeapon === 'fists') {
+  if (item.type === 'part') {
+    showToast(`📡 Found Radio Part: ${item.name}!`);
+  } else if (item.type === 'weapon' && player.equippedWeapon === 'fists') {
     player.equippedWeapon = item.weaponId;
     showToast(`Equipped ${item.name}`);
   } else {
@@ -115,6 +116,21 @@ export function grabLootAt(player, lootIndex) {
 
   renderBag(player);
   return true;
+}
+
+export function installRadioPartsFromBag(player) {
+  let installedCount = 0;
+  for (let i = inventory.length - 1; i >= 0; i--) {
+    if (inventory[i].type === 'part') {
+      radioTower.installedParts.push(inventory[i].name);
+      inventory.splice(i, 1);
+      installedCount++;
+    }
+  }
+  if (installedCount > 0) {
+    renderBag(player);
+  }
+  return installedCount;
 }
 
 function useBagItem(player, idx) {
