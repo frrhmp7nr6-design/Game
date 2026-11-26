@@ -15,31 +15,86 @@ export const WEAPONS = {
     type: 'melee',
     range: 1.9,
     damage: 34,
-    cooldown: 0.75,
+    cooldown: 0.72,
     arc: 0.72,
     staminaCost: 7
+  },
+  axe: {
+    name: 'Fire Axe',
+    type: 'melee',
+    range: 2.15,
+    damage: 55,
+    cooldown: 0.85,
+    arc: 0.78,
+    staminaCost: 10
   },
   pistol: {
     name: '9mm Pistol',
     type: 'ranged',
-    range: 7.2,
-    damage: 45,
-    cooldown: 0.55,
+    range: 7.5,
+    damage: 48,
+    cooldown: 0.52,
     arc: 0.42,
     staminaCost: 1
   }
 };
 
+// Zombies distributed around roads and key buildings
 export const zombies = [
-  { id: 1, x: 7.5, y: 4.5, hp: 100, maxHp: 100, speed: 1.65, attackCd: 0, hitFlash: 0, wanderAng: 1.2 },
-  { id: 2, x: 9.0, y: 6.5, hp: 100, maxHp: 100, speed: 1.75, attackCd: 0, hitFlash: 0, wanderAng: 3.8 },
-  { id: 3, x: 11.5, y: 11.5, hp: 100, maxHp: 100, speed: 1.85, attackCd: 0, hitFlash: 0, wanderAng: 0.5 },
-  { id: 4, x: 19.5, y: 8.5, hp: 100, maxHp: 100, speed: 2.0, attackCd: 0, hitFlash: 0, wanderAng: 2.1 },
-  { id: 5, x: 14.5, y: 20.5, hp: 100, maxHp: 100, speed: 1.75, attackCd: 0, hitFlash: 0, wanderAng: 4.4 },
-  { id: 6, x: 6.5, y: 16.5, hp: 100, maxHp: 100, speed: 1.9, attackCd: 0, hitFlash: 0, wanderAng: 5.1 }
+  // Near starter cabin & north road
+  { id: 1, x: 14.5, y: 12.5, hp: 100, maxHp: 100, speed: 1.65, attackCd: 0, hitFlash: 0, wanderAng: 1.2 },
+  { id: 2, x: 17.5, y: 22.5, hp: 100, maxHp: 100, speed: 1.75, attackCd: 0, hitFlash: 0, wanderAng: 3.1 },
+  { id: 3, x: 24.5, y: 21.5, hp: 100, maxHp: 100, speed: 1.85, attackCd: 0, hitFlash: 0, wanderAng: 0.4 },
+
+  // Main street intersection
+  { id: 4, x: 29.5, y: 29.5, hp: 100, maxHp: 100, speed: 1.9, attackCd: 0, hitFlash: 0, wanderAng: 2.2 },
+  { id: 5, x: 31.5, y: 26.5, hp: 100, maxHp: 100, speed: 1.8, attackCd: 0, hitFlash: 0, wanderAng: 4.5 },
+
+  // Hardware store guards
+  { id: 6, x: 44.5, y: 15.5, hp: 110, maxHp: 110, speed: 1.95, attackCd: 0, hitFlash: 0, wanderAng: 1.8 },
+  { id: 7, x: 48.5, y: 13.5, hp: 110, maxHp: 110, speed: 1.85, attackCd: 0, hitFlash: 0, wanderAng: 5.0 },
+  { id: 8, x: 38.5, y: 16.5, hp: 100, maxHp: 100, speed: 1.75, attackCd: 0, hitFlash: 0, wanderAng: 0.9 },
+
+  // Diner & central town
+  { id: 9, x: 39.5, y: 38.5, hp: 100, maxHp: 100, speed: 1.85, attackCd: 0, hitFlash: 0, wanderAng: 3.3 },
+  { id: 10, x: 33.5, y: 36.5, hp: 100, maxHp: 100, speed: 1.9, attackCd: 0, hitFlash: 0, wanderAng: 1.1 },
+
+  // Police outpost guards
+  { id: 11, x: 15.5, y: 46.5, hp: 120, maxHp: 120, speed: 2.0, attackCd: 0, hitFlash: 0, wanderAng: 2.7 },
+  { id: 12, x: 18.5, y: 48.5, hp: 120, maxHp: 120, speed: 1.95, attackCd: 0, hitFlash: 0, wanderAng: 4.1 },
+  { id: 13, x: 22.5, y: 44.5, hp: 100, maxHp: 100, speed: 1.85, attackCd: 0, hitFlash: 0, wanderAng: 0.2 },
+
+  // South road & Evac perimeter
+  { id: 14, x: 30.5, y: 46.5, hp: 100, maxHp: 100, speed: 1.95, attackCd: 0, hitFlash: 0, wanderAng: 3.9 },
+  { id: 15, x: 44.5, y: 50.5, hp: 110, maxHp: 110, speed: 2.0, attackCd: 0, hitFlash: 0, wanderAng: 2.4 },
+  { id: 16, x: 50.5, y: 44.5, hp: 110, maxHp: 110, speed: 2.0, attackCd: 0, hitFlash: 0, wanderAng: 5.5 }
 ];
 
 export const fxList = [];
+
+let nextWaveId = 100;
+export function spawnEvacHorde() {
+  const spawnPoints = [
+    [43.5, 52.5],
+    [52.5, 43.5],
+    [44.5, 44.5],
+    [60.5, 52.5]
+  ];
+  for (const [sx, sy] of spawnPoints) {
+    zombies.push({
+      id: nextWaveId++,
+      x: sx,
+      y: sy,
+      hp: 100,
+      maxHp: 100,
+      speed: 2.15,
+      attackCd: 0,
+      hitFlash: 0,
+      wanderAng: 0,
+      forcedAggro: true
+    });
+  }
+}
 
 function normalizeAngle(a) {
   while (a > Math.PI) a -= Math.PI * 2;
@@ -91,7 +146,6 @@ export function updateCombat(dt, player) {
   if (player.attackTimer === 0 && player.stamina >= weapon.staminaCost) {
     let bestTarget = null;
     let bestDist = Infinity;
-
     const pScreen = worldToScreen(player.x, player.y, 0, 0);
 
     for (const z of zombies) {
@@ -149,16 +203,15 @@ export function updateCombat(dt, player) {
     }
 
     const dist = Math.hypot(player.x - z.x, player.y - z.y);
+    const aggroRange = z.forcedAggro ? 22 : 7.5;
 
-    if (dist < 7.5 && dist > 0.72 && hasLineOfSight(z.x, z.y, player.x, player.y)) {
-      // Chase player
+    if (dist < aggroRange && dist > 0.72 && (z.forcedAggro || hasLineOfSight(z.x, z.y, player.x, player.y))) {
       const ang = Math.atan2(player.y - z.y, player.x - z.x);
       const vx = Math.cos(ang) * z.speed * dt;
       const vy = Math.sin(ang) * z.speed * dt;
       if (canZombieWalkTo(z.x + vx, z.y)) z.x += vx;
       if (canZombieWalkTo(z.x, z.y + vy)) z.y += vy;
-    } else if (dist >= 7.5) {
-      // Idle shamble
+    } else if (dist >= aggroRange) {
       if (Math.random() < 0.02) z.wanderAng += (Math.random() - 0.5) * 2.5;
       const vx = Math.cos(z.wanderAng) * 0.45 * dt;
       const vy = Math.sin(z.wanderAng) * 0.45 * dt;
