@@ -26,12 +26,13 @@ export const map = Array.from({ length: MAP_SIZE }, (_, y) =>
 );
 
 export const worldLoot = [
+  { x: 6.5, y: 5.5, name: 'Crowbar', type: 'weapon', weaponId: 'crowbar', color: '#38bdf8' },
   { x: 6.5, y: 6.5, name: 'Canned Beans', type: 'food', hunger: 35, hp: 5, color: '#f97316' },
   { x: 10.5, y: 10.5, name: 'MRE Pack', type: 'food', hunger: 50, hp: 10, color: '#eab308' },
   { x: 13.5, y: 12.5, name: 'Apple', type: 'food', hunger: 20, hp: 5, color: '#ef4444' },
   { x: 12.5, y: 9.5, name: 'Bandage', type: 'med', hunger: 0, hp: 35, color: '#f8fafc' },
+  { x: 20.5, y: 6.5, name: '9mm Pistol', type: 'weapon', weaponId: 'pistol', color: '#94a3b8' },
   { x: 20.5, y: 7.5, name: 'Canned Soup', type: 'food', hunger: 40, hp: 8, color: '#f97316' },
-  { x: 21.5, y: 8.5, name: 'Scrap Wood', type: 'mat', hunger: 0, hp: 0, color: '#a16207' },
   { x: 15.5, y: 21.5, name: 'Energy Bar', type: 'food', hunger: 25, hp: 5, color: '#a855f7' },
   { x: 5.5, y: 19.5, name: 'Wild Berries', type: 'food', hunger: 18, hp: 4, color: '#ec4899' }
 ];
@@ -58,4 +59,3 @@ export function canWalkTo(nx, ny, radius) {
   }
   return true;
 }
-
