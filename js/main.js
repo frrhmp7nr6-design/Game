@@ -1,13 +1,23 @@
-import { worldLoot, radioTower, worldToScreen, canWalkTo } from './map.js';
+import {
+  camera,
+  rotateCamera,
+  doors,
+  worldLoot,
+  radioTower,
+  worldToScreen,
+  canWalkTo
+} from './map.js';
 import { sticks, keys, sprintHeld, initInput } from './input.js';
 import {
   inventory,
   initInventory,
   grabLootAt,
   installRadioPartsFromBag,
+  hasLockpick,
+  consumeLockpick,
   showToast
 } from './inventory.js';
-import { updateCombat, WEAPONS, zombies, spawnEvacHorde } from './combat.js';
+import { updateCombat, WEAPONS, fxList, spawnEvacHorde } from './combat.js';
 import { renderFrame } from './render.js';
 
 const canvas = document.getElementById('game');
@@ -21,6 +31,7 @@ const stamVal = document.getElementById('stam-val');
 const foodVal = document.getElementById('food-val');
 const coordsEl = document.getElementById('coords');
 const grabBtn = document.getElementById('grab-btn');
+const doorBtn = document.getElementById('door-btn');
 const repairBtn = document.getElementById('repair-btn');
 const missionPctEl = document.getElementById('mission-pct');
 const missionSubEl = document.getElementById('mission-sub');
@@ -58,8 +69,81 @@ const player = {
 };
 
 let nearbyLootIndex = -1;
+let nearbyDoor = null;
 
 const { toggleBag } = initInventory(player);
+
+function handleDoorAction() {
+  if (!nearbyDoor || player.dead) return;
+  const d = nearbyDoor;
+
+  if (d.state === 'unlocked') {
+    d.state = 'open';
+    showToast('Opened door');
+    return;
+  }
+
+  if (d.state === 'open') {
+    // Only close if player isn't standing inside the doorway tile
+    if (Math.floor(player.x) === d.x && Math.floor(player.y) === d.y) {
+      showToast('Step out of doorway first');
+      return;
+    }
+    d.state = 'unlocked';
+    showToast('Closed door');
+    return;
+  }
+
+  if (d.state === 'locked') {
+    if (hasLockpick()) {
+      consumeLockpick(player);
+      d.state = 'open';
+      showToast('🔓 Picked lock!');
+      return;
+    }
+    // Otherwise bash it down with equipped weapon
+    smashDoor(d);
+    return;
+  }
+
+  if (d.state === 'barricaded') {
+    smashDoor(d);
+  }
+}
+
+function smashDoor(d) {
+  const weapon = WEAPONS[player.equippedWeapon] || WEAPONS.fists;
+  if (weapon.type === 'ranged') {
+    showToast('Equip a Crowbar or Fire Axe to smash doors!');
+    return;
+  }
+  if (player.stamina < 10) {
+    showToast('Too exhausted to bash door!');
+    return;
+  }
+
+  player.stamina = Math.max(0, player.stamina - 10);
+  const dmg = weapon.damage;
+  d.hp = Math.max(0, d.hp - dmg);
+
+  fxList.push({
+    type: 'melee',
+    fromX: player.x,
+    fromY: player.y,
+    toX: d.x + 0.5,
+    toY: d.y + 0.5,
+    angle: player.angle,
+    life: 0.16,
+    maxLife: 0.16
+  });
+
+  if (d.hp === 0) {
+    d.state = 'open';
+    showToast('💥 Smashed door open!');
+  } else {
+    showToast(`Bashed door (${Math.ceil((d.hp / d.maxHp) * 100)}% left)`);
+  }
+}
 
 function handleRepair() {
   const distToTower = Math.hypot(radioTower.x - player.x, radioTower.y - player.y);
@@ -88,7 +172,12 @@ initInput(canvas, player, {
       grabBtn.classList.remove('visible');
     }
   },
+  onDoor: handleDoorAction,
   onRepair: handleRepair,
+  onRotate: () => {
+    const rot = rotateCamera();
+    showToast(`Camera: ${rot * 90}°`);
+  },
   onToggleBag: toggleBag
 });
 
@@ -145,13 +234,28 @@ function update(dt) {
     player.hp = Math.min(player.maxHp, player.hp + 1.2 * dt);
   }
 
+  // Movement adjusted for current 90° camera rotation
   if (isMoving) {
     const speed = player.isSprinting ? player.sprintSpeed : player.walkSpeed;
-    const wx = sx + sy * 2;
-    const wy = sy * 2 - sx;
-    const len = Math.hypot(wx, wy) || 1;
-    const vx = (wx / len) * speed * dt;
-    const vy = (wy / len) * speed * dt;
+    const rx = sx + sy * 2;
+    const ry = sy * 2 - sx;
+    const len = Math.hypot(rx, ry) || 1;
+    const rvx = (rx / len) * speed * dt;
+    const rvy = (ry / len) * speed * dt;
+
+    // Inverse-rotate screen movement vector back to world coordinates
+    let vx = rvx;
+    let vy = rvy;
+    if (camera.rotation === 1) {
+      vx = rvy;
+      vy = -rvx;
+    } else if (camera.rotation === 2) {
+      vx = -rvx;
+      vy = -rvy;
+    } else if (camera.rotation === 3) {
+      vx = -rvy;
+      vy = rvx;
+    }
 
     if (canWalkTo(player.x + vx, player.y, player.radius)) player.x += vx;
     if (canWalkTo(player.x, player.y + vy, player.radius)) player.y += vy;
@@ -208,6 +312,32 @@ function update(dt) {
     missionFillEl.style.width = `${(installed / radioTower.requiredParts) * 100}%`;
   }
 
+  // Proximity check for Doors
+  nearbyDoor = null;
+  let bestDoorDist = 1.45;
+  for (const d of doors) {
+    const dist = Math.hypot(d.x + 0.5 - player.x, d.y + 0.5 - player.y);
+    if (dist < bestDoorDist) {
+      bestDoorDist = dist;
+      nearbyDoor = d;
+    }
+  }
+
+  if (nearbyDoor) {
+    let label = 'OPEN<br/>DOOR';
+    if (nearbyDoor.state === 'open') label = 'CLOSE<br/>DOOR';
+    else if (nearbyDoor.state === 'locked') {
+      label = hasLockpick() ? 'PICK<br/>LOCK' : 'BASH<br/>DOOR';
+    } else if (nearbyDoor.state === 'barricaded') {
+      label = 'SMASH<br/>BOARDS';
+    }
+    doorBtn.innerHTML = label;
+    doorBtn.classList.add('visible');
+  } else {
+    doorBtn.classList.remove('visible');
+  }
+
+  // Proximity check for Radio Tower repair
   const distToTower = Math.hypot(radioTower.x - player.x, radioTower.y - player.y);
   const hasPartInBag = inventory.some((i) => i.type === 'part');
   if (distToTower <= 1.8 && hasPartInBag && !radioTower.evacActive) {
@@ -216,6 +346,7 @@ function update(dt) {
     repairBtn.classList.remove('visible');
   }
 
+  // Proximity check for loot
   nearbyLootIndex = -1;
   for (let i = 0; i < worldLoot.length; i++) {
     if (Math.hypot(worldLoot[i].x - player.x, worldLoot[i].y - player.y) < 1.15) {
@@ -250,7 +381,7 @@ function loop(now) {
   lastTime = now;
 
   update(dt);
-  renderFrame(ctx, player, nearbyLootIndex, getObjectiveTarget());
+  renderFrame(ctx, player, nearbyLootIndex, nearbyDoor, getObjectiveTarget());
 
   requestAnimationFrame(loop);
 }
