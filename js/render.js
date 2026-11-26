@@ -1,5 +1,6 @@
 import { TILE_W, TILE_H, MAP_SIZE, map, worldLoot, worldToScreen } from './map.js';
 import { sticks, MAX_STICK_R } from './input.js';
+import { zombies, fxList, WEAPONS } from './combat.js';
 
 function drawTile(ctx, wx, wy, camX, camY, type) {
   const p = worldToScreen(wx, wy, camX, camY);
@@ -72,16 +73,46 @@ function drawLoot(ctx, item, camX, camY, isHighlighted) {
   ctx.stroke();
 }
 
+function drawZombie(ctx, z, camX, camY) {
+  const pos = worldToScreen(z.x, z.y, camX, camY);
+
+  // Shadow
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+  ctx.beginPath();
+  ctx.ellipse(pos.x, pos.y + 2, 12, 6, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Zombie capsule
+  ctx.fillStyle = z.hitFlash > 0 ? '#fca5a5' : '#4d7c0f';
+  ctx.beginPath();
+  ctx.ellipse(pos.x, pos.y - 12, 9, 17, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#1a2e05';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Mini HP bar if damaged
+  if (z.hp < z.maxHp) {
+    const bw = 26;
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(pos.x - bw / 2, pos.y - 36, bw, 4);
+    ctx.fillStyle = '#ef4444';
+    ctx.fillRect(pos.x - bw / 2, pos.y - 36, bw * (z.hp / z.maxHp), 4);
+  }
+}
+
 function drawPlayer(ctx, player, camX, camY) {
   const pos = worldToScreen(player.x, player.y, camX, camY);
+  const weapon = WEAPONS[player.equippedWeapon] || WEAPONS.fists;
 
-  // Vision Cone
+  // Vision Cone (scales subtly with equipped weapon range)
+  const coneRadius = weapon.type === 'ranged' ? 290 : 210;
   ctx.save();
   ctx.beginPath();
   ctx.moveTo(pos.x, pos.y);
-  ctx.arc(pos.x, pos.y, 230, player.angle - 0.6, player.angle + 0.6);
+  ctx.arc(pos.x, pos.y, coneRadius, player.angle - weapon.arc, player.angle + weapon.arc);
   ctx.closePath();
-  const grad = ctx.createRadialGradient(pos.x, pos.y, 8, pos.x, pos.y, 230);
+  const grad = ctx.createRadialGradient(pos.x, pos.y, 8, pos.x, pos.y, coneRadius);
   grad.addColorStop(0, 'rgba(253, 224, 71, 0.24)');
   grad.addColorStop(1, 'rgba(253, 224, 71, 0.0)');
   ctx.fillStyle = grad;
@@ -114,6 +145,35 @@ function drawPlayer(ctx, player, camX, camY) {
     Math.PI * 2
   );
   ctx.fill();
+}
+
+function drawCombatFx(ctx, camX, camY) {
+  for (const fx of fxList) {
+    const alpha = Math.max(0, fx.life / fx.maxLife);
+    const from = worldToScreen(fx.fromX, fx.fromY, camX, camY);
+    const to = worldToScreen(fx.toX, fx.toY, camX, camY);
+
+    if (fx.type === 'ranged') {
+      // Bullet tracer line
+      ctx.save();
+      ctx.strokeStyle = `rgba(253, 224, 71, ${alpha})`;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y - 12);
+      ctx.lineTo(to.x, to.y - 12);
+      ctx.stroke();
+      ctx.restore();
+    } else {
+      // Melee swing arc
+      ctx.save();
+      ctx.strokeStyle = `rgba(224, 242, 254, ${alpha * 0.85})`;
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.arc(from.x, from.y - 10, 46, fx.angle - 0.65, fx.angle + 0.65);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
 }
 
 function drawJoysticks(ctx) {
@@ -150,7 +210,7 @@ export function renderFrame(ctx, player, nearbyLootIndex) {
     }
   }
 
-  // Depth-sort walls, loot, and player
+  // Depth-sort walls, loot, zombies, and player
   const renderables = [];
   for (let y = 0; y < MAP_SIZE; y++) {
     for (let x = 0; x < MAP_SIZE; x++) {
@@ -167,6 +227,13 @@ export function renderFrame(ctx, player, nearbyLootIndex) {
     });
   });
 
+  zombies.forEach((z) => {
+    renderables.push({
+      depth: Math.floor(z.x) + Math.floor(z.y) + 0.08,
+      draw: () => drawZombie(ctx, z, camX, camY)
+    });
+  });
+
   renderables.push({
     depth: Math.floor(player.x) + Math.floor(player.y) + 0.1,
     draw: () => drawPlayer(ctx, player, camX, camY)
@@ -175,5 +242,6 @@ export function renderFrame(ctx, player, nearbyLootIndex) {
   renderables.sort((a, b) => a.depth - b.depth);
   for (const item of renderables) item.draw();
 
+  drawCombatFx(ctx, camX, camY);
   drawJoysticks(ctx);
 }
