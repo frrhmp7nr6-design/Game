@@ -31,12 +31,12 @@ export const WEAPONS = {
 };
 
 export const zombies = [
-  { id: 1, x: 8.5, y: 5.5, hp: 100, maxHp: 100, speed: 1.65, attackCd: 0, hitFlash: 0 },
-  { id: 2, x: 11.5, y: 11.5, hp: 100, maxHp: 100, speed: 1.85, attackCd: 0, hitFlash: 0 },
-  { id: 3, x: 19.5, y: 8.5, hp: 100, maxHp: 100, speed: 2.0, attackCd: 0, hitFlash: 0 },
-  { id: 4, x: 14.5, y: 20.5, hp: 100, maxHp: 100, speed: 1.75, attackCd: 0, hitFlash: 0 },
-  { id: 5, x: 6.5, y: 16.5, hp: 100, maxHp: 100, speed: 1.9, attackCd: 0, hitFlash: 0 },
-  { id: 6, x: 22.5, y: 18.5, hp: 100, maxHp: 100, speed: 2.1, attackCd: 0, hitFlash: 0 }
+  { id: 1, x: 7.5, y: 4.5, hp: 100, maxHp: 100, speed: 1.65, attackCd: 0, hitFlash: 0, wanderAng: 1.2 },
+  { id: 2, x: 9.0, y: 6.5, hp: 100, maxHp: 100, speed: 1.75, attackCd: 0, hitFlash: 0, wanderAng: 3.8 },
+  { id: 3, x: 11.5, y: 11.5, hp: 100, maxHp: 100, speed: 1.85, attackCd: 0, hitFlash: 0, wanderAng: 0.5 },
+  { id: 4, x: 19.5, y: 8.5, hp: 100, maxHp: 100, speed: 2.0, attackCd: 0, hitFlash: 0, wanderAng: 2.1 },
+  { id: 5, x: 14.5, y: 20.5, hp: 100, maxHp: 100, speed: 1.75, attackCd: 0, hitFlash: 0, wanderAng: 4.4 },
+  { id: 6, x: 6.5, y: 16.5, hp: 100, maxHp: 100, speed: 1.9, attackCd: 0, hitFlash: 0, wanderAng: 5.1 }
 ];
 
 export const fxList = [];
@@ -87,6 +87,7 @@ export function updateCombat(dt, player) {
   player.attackTimer = Math.max(0, player.attackTimer - dt);
   const weapon = WEAPONS[player.equippedWeapon] || WEAPONS.fists;
 
+  // Auto-target closest zombie inside vision cone & weapon range
   if (player.attackTimer === 0 && player.stamina >= weapon.staminaCost) {
     let bestTarget = null;
     let bestDist = Infinity;
@@ -150,11 +151,21 @@ export function updateCombat(dt, player) {
     const dist = Math.hypot(player.x - z.x, player.y - z.y);
 
     if (dist < 7.5 && dist > 0.72 && hasLineOfSight(z.x, z.y, player.x, player.y)) {
+      // Chase player
       const ang = Math.atan2(player.y - z.y, player.x - z.x);
       const vx = Math.cos(ang) * z.speed * dt;
       const vy = Math.sin(ang) * z.speed * dt;
       if (canZombieWalkTo(z.x + vx, z.y)) z.x += vx;
       if (canZombieWalkTo(z.x, z.y + vy)) z.y += vy;
+    } else if (dist >= 7.5) {
+      // Idle shamble
+      if (Math.random() < 0.02) z.wanderAng += (Math.random() - 0.5) * 2.5;
+      const vx = Math.cos(z.wanderAng) * 0.45 * dt;
+      const vy = Math.sin(z.wanderAng) * 0.45 * dt;
+      if (canZombieWalkTo(z.x + vx, z.y)) z.x += vx;
+      else z.wanderAng += Math.PI;
+      if (canZombieWalkTo(z.x, z.y + vy)) z.y += vy;
+      else z.wanderAng += Math.PI;
     }
 
     if (dist <= 0.85 && z.attackCd === 0) {
