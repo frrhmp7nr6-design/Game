@@ -19,7 +19,6 @@ export const map = (() => {
   const grid = Array.from({ length: MAP_SIZE }, (_, y) =>
     Array.from({ length: MAP_SIZE }, (_, x) => {
       if (x === 0 || y === 0 || x === MAP_SIZE - 1 || y === MAP_SIZE - 1) return 2;
-      // Cross-town asphalt roads
       if ((y >= 28 && y <= 31) || (x >= 28 && x <= 31)) return 3;
       return 0;
     })
@@ -28,7 +27,7 @@ export const map = (() => {
   // 1. Starter Cabin (NW: x 4..12, y 4..11)
   buildBuilding(grid, 4, 4, 12, 11, [[8, 11]]);
 
-  // 2. Roadside Gas Station / Garage (N-Central: x 19..26, y 18..25)
+  // 2. Roadside Gas Station (N-Central: x 19..26, y 18..25)
   buildBuilding(grid, 19, 18, 26, 25, [[22, 25], [26, 21]]);
 
   // 3. Hardware Store (NE: x 40..51, y 10..19)
@@ -46,18 +45,16 @@ export const map = (() => {
   return grid;
 })();
 
-// Extraction Objective State
 export const radioTower = {
   x: 52.5,
   y: 52.5,
   installedParts: [],
   requiredParts: 4,
-  evacTimer: 30, // 30s holdout once fully repaired
+  evacTimer: 30,
   evacActive: false,
   complete: false
 };
 
-// Scattered loot: 4 Radio Parts + Weapons + Food + Meds
 export const worldLoot = [
   // Starter Area
   { x: 9.5, y: 7.5, name: 'Crowbar', type: 'weapon', weaponId: 'crowbar', color: '#38bdf8' },
@@ -82,7 +79,7 @@ export const worldLoot = [
   { x: 17.5, y: 45.5, name: '9mm Pistol', type: 'weapon', weaponId: 'pistol', color: '#94a3b8' },
   { x: 12.5, y: 45.0, name: 'MRE Pack', type: 'food', hunger: 55, hp: 10, color: '#eab308' },
 
-  // South-Central Warehouse / Roadside (Radio Part #4)
+  // South-Central Roadside (Radio Part #4)
   { x: 30.5, y: 49.5, name: 'Spark Plugs', type: 'part', color: '#22d3ee' },
   { x: 29.5, y: 48.0, name: 'Apple', type: 'food', hunger: 22, hp: 5, color: '#ef4444' },
 
