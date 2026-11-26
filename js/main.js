@@ -1,6 +1,7 @@
 import { worldLoot, worldToScreen, canWalkTo } from './map.js';
 import { sticks, keys, sprintHeld, initInput } from './input.js';
 import { initInventory, grabLootAt } from './inventory.js';
+import { updateCombat, WEAPONS } from './combat.js';
 import { renderFrame } from './render.js';
 
 const canvas = document.getElementById('game');
@@ -37,6 +38,8 @@ const player = {
   maxStamina: 100,
   hunger: 85,
   maxHunger: 100,
+  equippedWeapon: 'fists',
+  attackTimer: 0,
   isSprinting: false,
   exhausted: false,
   dead: false
@@ -81,20 +84,15 @@ function update(dt) {
     if (player.stamina >= 25) player.exhausted = false;
   }
 
-  // Hunger & Starvation logic
-  const hungerDrain = player.isSprinting ? 2.2 : isMoving ? 1.1 : 0.6;
+  // Slower, gentler Hunger & Starvation pacing
+  const hungerDrain = player.isSprinting ? 1.15 : isMoving ? 0.55 : 0.3;
   player.hunger = Math.max(0, player.hunger - hungerDrain * dt);
 
   if (player.hunger === 0) {
-    player.hp = Math.max(0, player.hp - 4.5 * dt);
-  } else if (player.hunger > 60 && player.hp < player.maxHp) {
-    player.hp = Math.min(player.maxHp, player.hp + 1.5 * dt);
-  }
-
-  if (player.hp <= 0) {
-    player.dead = true;
-    gameOverEl.classList.add('show');
-    return;
+    // Gentle starvation tick (~0.65 HP/sec instead of 4.5 HP/sec)
+    player.hp = Math.max(0, player.hp - 0.65 * dt);
+  } else if (player.hunger > 65 && player.hp < player.maxHp) {
+    player.hp = Math.min(player.maxHp, player.hp + 1.2 * dt);
   }
 
   // Movement
@@ -120,6 +118,20 @@ function update(dt) {
     player.angle = Math.atan2(sticks.look.dy, sticks.look.dx);
   }
 
+  // Auto-combat & zombie AI
+  updateCombat(dt, player);
+
+  if (player.hp <= 0) {
+    player.dead = true;
+    gameOverEl.querySelector('h1').textContent = player.hunger === 0 ? 'YOU STARVED' : 'YOU DIED';
+    gameOverEl.querySelector('p').textContent =
+      player.hunger === 0
+        ? 'Open your backpack to eat stored food before fullness hits 0%.'
+        : 'Keep zombies inside your vision cone so your weapon auto-attacks.';
+    gameOverEl.classList.add('show');
+    return;
+  }
+
   // Proximity check for loot
   nearbyLootIndex = -1;
   for (let i = 0; i < worldLoot.length; i++) {
@@ -137,6 +149,7 @@ function update(dt) {
   }
 
   // HUD updates
+  const wName = WEAPONS[player.equippedWeapon]?.name || 'Fists';
   hpFill.style.width = `${player.hp}%`;
   stamFill.style.width = `${player.stamina}%`;
   stamFill.style.background = player.exhausted ? '#94a3b8' : '#38bdf8';
@@ -146,7 +159,7 @@ function update(dt) {
   hpVal.textContent = `${Math.ceil(player.hp)}%`;
   stamVal.textContent = `${Math.ceil(player.stamina)}%`;
   foodVal.textContent = `${Math.ceil(player.hunger)}%`;
-  coordsEl.textContent = `${player.x.toFixed(1)}, ${player.y.toFixed(1)}`;
+  coordsEl.textContent = `${wName} • ${player.x.toFixed(1)}, ${player.y.toFixed(1)}`;
 }
 
 let lastTime = performance.now();
