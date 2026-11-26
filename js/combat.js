@@ -31,14 +31,14 @@ export const WEAPONS = {
 };
 
 export const zombies = [
-  { id: 1, x: 11.5, y: 11.5, hp: 100, maxHp: 100, speed: 1.85, attackCd: 0, hitFlash: 0 },
-  { id: 2, x: 19.5, y: 8.5, hp: 100, maxHp: 100, speed: 2.0, attackCd: 0, hitFlash: 0 },
-  { id: 3, x: 14.5, y: 20.5, hp: 100, maxHp: 100, speed: 1.75, attackCd: 0, hitFlash: 0 },
-  { id: 4, x: 6.5, y: 18.5, hp: 100, maxHp: 100, speed: 1.9, attackCd: 0, hitFlash: 0 },
-  { id: 5, x: 22.5, y: 18.5, hp: 100, maxHp: 100, speed: 2.1, attackCd: 0, hitFlash: 0 }
+  { id: 1, x: 8.5, y: 5.5, hp: 100, maxHp: 100, speed: 1.65, attackCd: 0, hitFlash: 0 },
+  { id: 2, x: 11.5, y: 11.5, hp: 100, maxHp: 100, speed: 1.85, attackCd: 0, hitFlash: 0 },
+  { id: 3, x: 19.5, y: 8.5, hp: 100, maxHp: 100, speed: 2.0, attackCd: 0, hitFlash: 0 },
+  { id: 4, x: 14.5, y: 20.5, hp: 100, maxHp: 100, speed: 1.75, attackCd: 0, hitFlash: 0 },
+  { id: 5, x: 6.5, y: 16.5, hp: 100, maxHp: 100, speed: 1.9, attackCd: 0, hitFlash: 0 },
+  { id: 6, x: 22.5, y: 18.5, hp: 100, maxHp: 100, speed: 2.1, attackCd: 0, hitFlash: 0 }
 ];
 
-// Visual tracers & melee slash arcs
 export const fxList = [];
 
 function normalizeAngle(a) {
@@ -47,7 +47,6 @@ function normalizeAngle(a) {
   return a;
 }
 
-// Ray-march check so you don't shoot or swing through solid walls
 export function hasLineOfSight(x1, y1, x2, y2) {
   const dist = Math.hypot(x2 - x1, y2 - y1);
   const steps = Math.ceil(dist * 4);
@@ -80,7 +79,6 @@ function canZombieWalkTo(nx, ny) {
 }
 
 export function updateCombat(dt, player) {
-  // Decay active visual effects
   for (let i = fxList.length - 1; i >= 0; i--) {
     fxList[i].life -= dt;
     if (fxList[i].life <= 0) fxList.splice(i, 1);
@@ -89,7 +87,6 @@ export function updateCombat(dt, player) {
   player.attackTimer = Math.max(0, player.attackTimer - dt);
   const weapon = WEAPONS[player.equippedWeapon] || WEAPONS.fists;
 
-  // 1. Auto-target closest zombie inside vision cone & weapon range
   if (player.attackTimer === 0 && player.stamina >= weapon.staminaCost) {
     let bestTarget = null;
     let bestDist = Infinity;
@@ -100,7 +97,6 @@ export function updateCombat(dt, player) {
       const dist = Math.hypot(z.x - player.x, z.y - player.y);
       if (dist > weapon.range) continue;
 
-      // Compare screen-space angle to player's vision cone angle
       const zScreen = worldToScreen(z.x, z.y, 0, 0);
       const angleToZ = Math.atan2(zScreen.y - pScreen.y, zScreen.x - pScreen.x);
       const angleDiff = Math.abs(normalizeAngle(angleToZ - player.angle));
@@ -119,7 +115,6 @@ export function updateCombat(dt, player) {
       player.attackTimer = weapon.cooldown;
       player.stamina = Math.max(0, player.stamina - weapon.staminaCost);
 
-      // Knockback slightly
       const kbAngle = Math.atan2(bestTarget.y - player.y, bestTarget.x - player.x);
       const kbDist = weapon.type === 'melee' ? 0.35 : 0.15;
       const kx = bestTarget.x + Math.cos(kbAngle) * kbDist;
@@ -142,7 +137,6 @@ export function updateCombat(dt, player) {
     }
   }
 
-  // 2. Update zombies (death cleanup, chasing, melee bite)
   for (let i = zombies.length - 1; i >= 0; i--) {
     const z = zombies[i];
     z.hitFlash = Math.max(0, z.hitFlash - dt);
@@ -155,7 +149,6 @@ export function updateCombat(dt, player) {
 
     const dist = Math.hypot(player.x - z.x, player.y - z.y);
 
-    // Aggro if within 7.5 tiles and has line of sight
     if (dist < 7.5 && dist > 0.72 && hasLineOfSight(z.x, z.y, player.x, player.y)) {
       const ang = Math.atan2(player.y - z.y, player.x - z.x);
       const vx = Math.cos(ang) * z.speed * dt;
@@ -164,7 +157,6 @@ export function updateCombat(dt, player) {
       if (canZombieWalkTo(z.x, z.y + vy)) z.y += vy;
     }
 
-    // Bite player if within melee reach
     if (dist <= 0.85 && z.attackCd === 0) {
       player.hp = Math.max(0, player.hp - 12);
       z.attackCd = 1.15;
