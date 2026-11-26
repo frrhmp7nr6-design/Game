@@ -1,4 +1,4 @@
-import { map, MAP_SIZE, worldToScreen } from './map.js?v=8';
+import { map, MAP_SIZE, worldToScreen } from './map.js';
 
 export const WEAPONS = {
   fists: {
