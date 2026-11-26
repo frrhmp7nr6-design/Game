@@ -1,8 +1,14 @@
-import { worldLoot, worldToScreen, canWalkTo } from './map.js';
-import { sticks, keys, sprintHeld, initInput } from './input.js';
-import { initInventory, grabLootAt } from './inventory.js';
-import { updateCombat, WEAPONS, zombies } from './combat.js';
-import { renderFrame } from './render.js';
+import { worldLoot, radioTower, worldToScreen, canWalkTo } from './map.js?v=6';
+import { sticks, keys, sprintHeld, initInput } from './input.js?v=6';
+import {
+  inventory,
+  initInventory,
+  grabLootAt,
+  installRadioPartsFromBag,
+  showToast
+} from './inventory.js?v=6';
+import { updateCombat, WEAPONS, zombies, spawnEvacHorde } from './combat.js?v=6';
+import { renderFrame } from './render.js?v=6';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -15,6 +21,10 @@ const stamVal = document.getElementById('stam-val');
 const foodVal = document.getElementById('food-val');
 const coordsEl = document.getElementById('coords');
 const grabBtn = document.getElementById('grab-btn');
+const repairBtn = document.getElementById('repair-btn');
+const missionPctEl = document.getElementById('mission-pct');
+const missionSubEl = document.getElementById('mission-sub');
+const missionFillEl = document.getElementById('mission-fill');
 const gameOverEl = document.getElementById('gameover');
 
 function resize() {
@@ -26,12 +36,12 @@ window.addEventListener('resize', resize);
 resize();
 
 const player = {
-  x: 4.5,
-  y: 4.5,
+  x: 6.5,
+  y: 6.5,
   radius: 0.28,
   angle: Math.PI / 4,
-  walkSpeed: 4.2,
-  sprintSpeed: 7.2,
+  walkSpeed: 4.4,
+  sprintSpeed: 7.4,
   hp: 100,
   maxHp: 100,
   stamina: 100,
@@ -42,12 +52,33 @@ const player = {
   attackTimer: 0,
   isSprinting: false,
   exhausted: false,
-  dead: false
+  dead: false,
+  won: false
 };
 
 let nearbyLootIndex = -1;
 
 const { toggleBag } = initInventory(player);
+
+function handleRepair() {
+  const distToTower = Math.hypot(radioTower.x - player.x, radioTower.y - player.y);
+  if (distToTower > 1.8 || radioTower.evacActive || radioTower.complete) return;
+
+  const added = installRadioPartsFromBag(player);
+  if (added === 0) {
+    showToast('Bring Radio Parts from town to repair!');
+    return;
+  }
+
+  const total = radioTower.installedParts.length;
+  showToast(`Installed ${added} part(s)! (${total}/${radioTower.requiredParts})`);
+
+  if (total >= radioTower.requiredParts) {
+    radioTower.evacActive = true;
+    spawnEvacHorde();
+    showToast('📡 SIGNAL SENT! Survive 30s until extraction!');
+  }
+}
 
 initInput(canvas, player, {
   onGrab: () => {
@@ -56,11 +87,34 @@ initInput(canvas, player, {
       grabBtn.classList.remove('visible');
     }
   },
+  onRepair: handleRepair,
   onToggleBag: toggleBag
 });
 
+function getObjectiveTarget() {
+  // If carrying a radio part or all parts are collected, point to the Evac Tower
+  const carryingPart = inventory.some((i) => i.type === 'part');
+  const remainingWorldParts = worldLoot.filter((i) => i.type === 'part');
+
+  if (carryingPart || remainingWorldParts.length === 0 || radioTower.evacActive) {
+    return { x: radioTower.x, y: radioTower.y, isTower: true };
+  }
+
+  // Otherwise point to closest uncollected Radio Part on the map
+  let closest = null;
+  let bestDist = Infinity;
+  for (const part of remainingWorldParts) {
+    const d = Math.hypot(part.x - player.x, part.y - player.y);
+    if (d < bestDist) {
+      bestDist = d;
+      closest = { x: part.x, y: part.y, isTower: false };
+    }
+  }
+  return closest;
+}
+
 function update(dt) {
-  if (player.dead) return;
+  if (player.dead || player.won) return;
 
   let sx = sticks.move.dx;
   let sy = sticks.move.dy;
@@ -75,17 +129,17 @@ function update(dt) {
   // Stamina logic
   if (wantsSprint && isMoving && player.stamina > 0 && !player.exhausted) {
     player.isSprinting = true;
-    player.stamina = Math.max(0, player.stamina - 24 * dt);
+    player.stamina = Math.max(0, player.stamina - 22 * dt);
     if (player.stamina === 0) player.exhausted = true;
   } else {
     player.isSprinting = false;
-    const regenRate = isMoving ? 10 : 18;
+    const regenRate = isMoving ? 11 : 19;
     player.stamina = Math.min(player.maxStamina, player.stamina + regenRate * dt);
     if (player.stamina >= 25) player.exhausted = false;
   }
 
   // Gentle Hunger & Starvation pacing
-  const hungerDrain = player.isSprinting ? 1.15 : isMoving ? 0.55 : 0.3;
+  const hungerDrain = player.isSprinting ? 1.0 : isMoving ? 0.5 : 0.25;
   player.hunger = Math.max(0, player.hunger - hungerDrain * dt);
 
   if (player.hunger === 0) {
@@ -122,6 +176,7 @@ function update(dt) {
 
   if (player.hp <= 0) {
     player.dead = true;
+    gameOverEl.querySelector('h1').style.color = '#ef4444';
     gameOverEl.querySelector('h1').textContent = player.hunger === 0 ? 'YOU STARVED' : 'YOU DIED';
     gameOverEl.querySelector('p').textContent =
       player.hunger === 0
@@ -129,6 +184,43 @@ function update(dt) {
         : 'Keep zombies inside your vision cone so your weapon auto-attacks.';
     gameOverEl.classList.add('show');
     return;
+  }
+
+  // Extraction countdown logic
+  if (radioTower.evacActive && !radioTower.complete) {
+    radioTower.evacTimer = Math.max(0, radioTower.evacTimer - dt);
+    missionPctEl.textContent = `EVAC IN ${Math.ceil(radioTower.evacTimer)}s`;
+    missionSubEl.textContent = 'Defend the SE Compound until the chopper lands!';
+    missionFillEl.style.width = `${((30 - radioTower.evacTimer) / 30) * 100}%`;
+
+    if (radioTower.evacTimer === 0) {
+      radioTower.complete = true;
+      player.won = true;
+      gameOverEl.querySelector('h1').style.color = '#4ade80';
+      gameOverEl.querySelector('h1').textContent = '🚁 EXTRACTED!';
+      gameOverEl.querySelector('p').textContent =
+        'You repaired the Evac Radio Tower and survived the horde.';
+      gameOverEl.classList.add('show');
+      return;
+    }
+  } else {
+    const installed = radioTower.installedParts.length;
+    const inBag = inventory.filter((i) => i.type === 'part').length;
+    missionPctEl.textContent = `${installed}/${radioTower.requiredParts} INSTALLED`;
+    missionSubEl.textContent =
+      inBag > 0
+        ? `Carrying ${inBag} part(s) — follow green arrow to SE Tower!`
+        : 'Follow cyan compass arrow to scavenge Radio Parts';
+    missionFillEl.style.width = `${(installed / radioTower.requiredParts) * 100}%`;
+  }
+
+  // Proximity check for Radio Tower repair button
+  const distToTower = Math.hypot(radioTower.x - player.x, radioTower.y - player.y);
+  const hasPartInBag = inventory.some((i) => i.type === 'part');
+  if (distToTower <= 1.8 && hasPartInBag && !radioTower.evacActive) {
+    repairBtn.classList.add('visible');
+  } else {
+    repairBtn.classList.remove('visible');
   }
 
   // Proximity check for loot
@@ -158,7 +250,7 @@ function update(dt) {
   hpVal.textContent = `${Math.ceil(player.hp)}%`;
   stamVal.textContent = `${Math.ceil(player.stamina)}%`;
   foodVal.textContent = `${Math.ceil(player.hunger)}%`;
-  coordsEl.textContent = `${wName} • Zombies: ${zombies.length} • ${player.x.toFixed(1)}, ${player.y.toFixed(1)}`;
+  coordsEl.textContent = `${wName} • ${player.x.toFixed(0)},${player.y.toFixed(0)}`;
 }
 
 let lastTime = performance.now();
@@ -167,7 +259,7 @@ function loop(now) {
   lastTime = now;
 
   update(dt);
-  renderFrame(ctx, player, nearbyLootIndex);
+  renderFrame(ctx, player, nearbyLootIndex, getObjectiveTarget());
 
   requestAnimationFrame(loop);
 }
