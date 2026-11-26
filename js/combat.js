@@ -1,4 +1,4 @@
-import { map, MAP_SIZE, worldToScreen } from './map.js';
+import { map, MAP_SIZE, worldToScreen } from './map.js?v=8';
 
 export const WEAPONS = {
   fists: {
@@ -39,35 +39,34 @@ export const WEAPONS = {
   }
 };
 
-// Zombies distributed around roads and key buildings
 export const zombies = [
   // Near starter cabin & north road
-  { id: 1, x: 14.5, y: 12.5, hp: 100, maxHp: 100, speed: 1.65, attackCd: 0, hitFlash: 0, wanderAng: 1.2 },
-  { id: 2, x: 17.5, y: 22.5, hp: 100, maxHp: 100, speed: 1.75, attackCd: 0, hitFlash: 0, wanderAng: 3.1 },
-  { id: 3, x: 24.5, y: 21.5, hp: 100, maxHp: 100, speed: 1.85, attackCd: 0, hitFlash: 0, wanderAng: 0.4 },
+  { id: 1, x: 14.5, y: 12.5, hp: 100, maxHp: 100, speed: 1.65, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 0, wanderAng: 1.2 },
+  { id: 2, x: 17.5, y: 22.5, hp: 100, maxHp: 100, speed: 1.75, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 1, wanderAng: 3.1 },
+  { id: 3, x: 24.5, y: 21.5, hp: 100, maxHp: 100, speed: 1.85, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 2, wanderAng: 0.4 },
 
   // Main street intersection
-  { id: 4, x: 29.5, y: 29.5, hp: 100, maxHp: 100, speed: 1.9, attackCd: 0, hitFlash: 0, wanderAng: 2.2 },
-  { id: 5, x: 31.5, y: 26.5, hp: 100, maxHp: 100, speed: 1.8, attackCd: 0, hitFlash: 0, wanderAng: 4.5 },
+  { id: 4, x: 29.5, y: 29.5, hp: 100, maxHp: 100, speed: 1.9, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 0.5, wanderAng: 2.2 },
+  { id: 5, x: 31.5, y: 26.5, hp: 100, maxHp: 100, speed: 1.8, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 1.5, wanderAng: 4.5 },
 
   // Hardware store guards
-  { id: 6, x: 44.5, y: 15.5, hp: 110, maxHp: 110, speed: 1.95, attackCd: 0, hitFlash: 0, wanderAng: 1.8 },
-  { id: 7, x: 48.5, y: 13.5, hp: 110, maxHp: 110, speed: 1.85, attackCd: 0, hitFlash: 0, wanderAng: 5.0 },
-  { id: 8, x: 38.5, y: 16.5, hp: 100, maxHp: 100, speed: 1.75, attackCd: 0, hitFlash: 0, wanderAng: 0.9 },
+  { id: 6, x: 44.5, y: 15.5, hp: 110, maxHp: 110, speed: 1.95, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 2.5, wanderAng: 1.8 },
+  { id: 7, x: 48.5, y: 13.5, hp: 110, maxHp: 110, speed: 1.85, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 0.2, wanderAng: 5.0 },
+  { id: 8, x: 38.5, y: 16.5, hp: 100, maxHp: 100, speed: 1.75, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 1.8, wanderAng: 0.9 },
 
   // Diner & central town
-  { id: 9, x: 39.5, y: 38.5, hp: 100, maxHp: 100, speed: 1.85, attackCd: 0, hitFlash: 0, wanderAng: 3.3 },
-  { id: 10, x: 33.5, y: 36.5, hp: 100, maxHp: 100, speed: 1.9, attackCd: 0, hitFlash: 0, wanderAng: 1.1 },
+  { id: 9, x: 39.5, y: 38.5, hp: 100, maxHp: 100, speed: 1.85, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 2.2, wanderAng: 3.3 },
+  { id: 10, x: 33.5, y: 36.5, hp: 100, maxHp: 100, speed: 1.9, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 0.7, wanderAng: 1.1 },
 
   // Police outpost guards
-  { id: 11, x: 15.5, y: 46.5, hp: 120, maxHp: 120, speed: 2.0, attackCd: 0, hitFlash: 0, wanderAng: 2.7 },
-  { id: 12, x: 18.5, y: 48.5, hp: 120, maxHp: 120, speed: 1.95, attackCd: 0, hitFlash: 0, wanderAng: 4.1 },
-  { id: 13, x: 22.5, y: 44.5, hp: 100, maxHp: 100, speed: 1.85, attackCd: 0, hitFlash: 0, wanderAng: 0.2 },
+  { id: 11, x: 15.5, y: 46.5, hp: 120, maxHp: 120, speed: 2.0, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 1.1, wanderAng: 2.7 },
+  { id: 12, x: 18.5, y: 48.5, hp: 120, maxHp: 120, speed: 1.95, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 2.9, wanderAng: 4.1 },
+  { id: 13, x: 22.5, y: 44.5, hp: 100, maxHp: 100, speed: 1.85, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 0.4, wanderAng: 0.2 },
 
   // South road & Evac perimeter
-  { id: 14, x: 30.5, y: 46.5, hp: 100, maxHp: 100, speed: 1.95, attackCd: 0, hitFlash: 0, wanderAng: 3.9 },
-  { id: 15, x: 44.5, y: 50.5, hp: 110, maxHp: 110, speed: 2.0, attackCd: 0, hitFlash: 0, wanderAng: 2.4 },
-  { id: 16, x: 50.5, y: 44.5, hp: 110, maxHp: 110, speed: 2.0, attackCd: 0, hitFlash: 0, wanderAng: 5.5 }
+  { id: 14, x: 30.5, y: 46.5, hp: 100, maxHp: 100, speed: 1.95, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 1.4, wanderAng: 3.9 },
+  { id: 15, x: 44.5, y: 50.5, hp: 110, maxHp: 110, speed: 2.0, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 2.1, wanderAng: 2.4 },
+  { id: 16, x: 50.5, y: 44.5, hp: 110, maxHp: 110, speed: 2.0, attackCd: 0, hitFlash: 0, lungeTimer: 0, facing: 0, walkPhase: 0.9, wanderAng: 5.5 }
 ];
 
 export const fxList = [];
@@ -90,6 +89,9 @@ export function spawnEvacHorde() {
       speed: 2.15,
       attackCd: 0,
       hitFlash: 0,
+      lungeTimer: 0,
+      facing: 0,
+      walkPhase: 0,
       wanderAng: 0,
       forcedAggro: true
     });
@@ -134,6 +136,8 @@ function canZombieWalkTo(nx, ny) {
 }
 
 export function updateCombat(dt, player) {
+  player.hurtFlash = Math.max(0, (player.hurtFlash || 0) - dt);
+
   for (let i = fxList.length - 1; i >= 0; i--) {
     fxList[i].life -= dt;
     if (fxList[i].life <= 0) fxList.splice(i, 1);
@@ -142,7 +146,7 @@ export function updateCombat(dt, player) {
   player.attackTimer = Math.max(0, player.attackTimer - dt);
   const weapon = WEAPONS[player.equippedWeapon] || WEAPONS.fists;
 
-  // Auto-target closest zombie inside vision cone & weapon range
+  // Player auto-attack inside vision cone
   if (player.attackTimer === 0 && player.stamina >= weapon.staminaCost) {
     let bestTarget = null;
     let bestDist = Infinity;
@@ -166,7 +170,7 @@ export function updateCombat(dt, player) {
 
     if (bestTarget) {
       bestTarget.hp -= weapon.damage;
-      bestTarget.hitFlash = 0.14;
+      bestTarget.hitFlash = 0.16;
       player.attackTimer = weapon.cooldown;
       player.stamina = Math.max(0, player.stamina - weapon.staminaCost);
 
@@ -186,16 +190,18 @@ export function updateCombat(dt, player) {
         toX: bestTarget.x,
         toY: bestTarget.y,
         angle: player.angle,
-        life: 0.14,
-        maxLife: 0.14
+        life: 0.16,
+        maxLife: 0.16
       });
     }
   }
 
+  // Zombie movement, walk cycle, and bite attack
   for (let i = zombies.length - 1; i >= 0; i--) {
     const z = zombies[i];
     z.hitFlash = Math.max(0, z.hitFlash - dt);
     z.attackCd = Math.max(0, z.attackCd - dt);
+    z.lungeTimer = Math.max(0, z.lungeTimer - dt);
 
     if (z.hp <= 0) {
       zombies.splice(i, 1);
@@ -207,12 +213,16 @@ export function updateCombat(dt, player) {
 
     if (dist < aggroRange && dist > 0.72 && (z.forcedAggro || hasLineOfSight(z.x, z.y, player.x, player.y))) {
       const ang = Math.atan2(player.y - z.y, player.x - z.x);
+      z.facing = ang;
+      z.walkPhase += dt * 11;
       const vx = Math.cos(ang) * z.speed * dt;
       const vy = Math.sin(ang) * z.speed * dt;
       if (canZombieWalkTo(z.x + vx, z.y)) z.x += vx;
       if (canZombieWalkTo(z.x, z.y + vy)) z.y += vy;
     } else if (dist >= aggroRange) {
       if (Math.random() < 0.02) z.wanderAng += (Math.random() - 0.5) * 2.5;
+      z.facing = z.wanderAng;
+      z.walkPhase += dt * 5;
       const vx = Math.cos(z.wanderAng) * 0.45 * dt;
       const vy = Math.sin(z.wanderAng) * 0.45 * dt;
       if (canZombieWalkTo(z.x + vx, z.y)) z.x += vx;
@@ -221,9 +231,23 @@ export function updateCombat(dt, player) {
       else z.wanderAng += Math.PI;
     }
 
-    if (dist <= 0.85 && z.attackCd === 0) {
+    // Bite attack with visual lunge & red screen flash
+    if (dist <= 0.9 && z.attackCd === 0) {
       player.hp = Math.max(0, player.hp - 12);
+      player.hurtFlash = 0.35;
       z.attackCd = 1.15;
+      z.lungeTimer = 0.25;
+      z.facing = Math.atan2(player.y - z.y, player.x - z.x);
+
+      fxList.push({
+        type: 'bite',
+        fromX: z.x,
+        fromY: z.y,
+        toX: player.x,
+        toY: player.y,
+        life: 0.45,
+        maxLife: 0.45
+      });
     }
   }
 }
