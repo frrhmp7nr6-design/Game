@@ -11,7 +11,7 @@ export function showToast(msg) {
   toastEl.textContent = msg;
   toastEl.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2000);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2200);
 }
 
 export function initInventory(player) {
@@ -27,6 +27,18 @@ export function initInventory(player) {
   renderBag(player);
 
   return { toggleBag };
+}
+
+export function hasLockpick() {
+  return inventory.some((i) => i.type === 'tool' && i.toolId === 'lockpick');
+}
+
+export function consumeLockpick(player) {
+  const idx = inventory.findIndex((i) => i.type === 'tool' && i.toolId === 'lockpick');
+  if (idx === -1) return false;
+  inventory.splice(idx, 1);
+  renderBag(player);
+  return true;
 }
 
 export function renderBag(player) {
@@ -60,6 +72,7 @@ export function renderBag(player) {
     if (item.type === 'food') desc = `+${item.hunger}% Fullness, +${item.hp}% HP`;
     else if (item.type === 'med') desc = `+${item.hp}% Health`;
     else if (item.type === 'part') desc = 'Mission Item • Take to SE Radio Tower';
+    else if (item.type === 'tool') desc = 'Opens locked doors silently';
     else if (item.type === 'weapon') {
       const w = WEAPONS[item.weaponId];
       desc = `${w.damage} DMG • ${w.type === 'ranged' ? 'Ranged' : 'Melee'}`;
@@ -71,7 +84,7 @@ export function renderBag(player) {
 
     row.innerHTML = `
       <div class="bag-item-info">
-        <span class="bag-item-name" style="${item.type === 'part' ? 'color:#22d3ee;' : ''}">${item.name} ${isEquipped ? '<span style="color:#38bdf8;font-size:10px;">(ACTIVE)</span>' : ''}</span>
+        <span class="bag-item-name" style="${item.type === 'part' ? 'color:#22d3ee;' : item.type === 'tool' ? 'color:#fbbf24;' : ''}">${item.name} ${isEquipped ? '<span style="color:#38bdf8;font-size:10px;">(ACTIVE)</span>' : ''}</span>
         <span class="bag-item-sub">${desc}</span>
       </div>
       <div class="bag-btns">
