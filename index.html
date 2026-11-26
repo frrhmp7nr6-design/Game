@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>IsoWalk Prototype</title>
+  <title>IsoWalk Survival</title>
   <style>
     * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
     html, body {
@@ -14,30 +14,129 @@
       font-family: -apple-system, BlinkMacSystemFont, sans-serif;
     }
     canvas { display: block; width: 100vw; height: 100vh; }
+
+    /* Top HUD */
     #hud {
       position: fixed; top: 14px; left: 16px; right: 16px;
-      display: flex; justify-content: space-between; align-items: center;
-      pointer-events: none; color: #cbd5e1; font-size: 13px;
+      display: flex; justify-content: space-between; align-items: flex-start;
+      pointer-events: none; color: #e2e8f0; font-size: 13px;
     }
+    .stats-panel {
+      background: rgba(15, 23, 42, 0.88);
+      border: 1px solid #334155;
+      padding: 10px 12px;
+      border-radius: 10px;
+      width: 210px;
+      display: flex;
+      flex-direction: column;
+      gap: 7px;
+    }
+    .bar-row { display: flex; flex-direction: column; gap: 3px; }
+    .bar-label {
+      display: flex; justify-content: space-between;
+      font-size: 11px; font-weight: 600; letter-spacing: 0.4px; color: #cbd5e1;
+    }
+    .bar-track {
+      width: 100%; height: 8px; background: #1e293b;
+      border-radius: 999px; overflow: hidden; border: 1px solid #0f172a;
+    }
+    .bar-fill { height: 100%; width: 100%; transition: width 0.1s linear; }
+    #hp-fill { background: #ef4444; }
+    #stam-fill { background: #38bdf8; }
+    #food-fill { background: #f59e0b; }
+
     .pill {
       background: rgba(15, 23, 42, 0.85);
       border: 1px solid #334155;
       padding: 6px 12px;
       border-radius: 8px;
+      color: #cbd5e1;
+    }
+
+    /* Bottom-Right iPad Action Buttons */
+    #actions {
+      position: fixed; bottom: 26px; right: 26px;
+      display: flex; flex-direction: column; gap: 12px; align-items: flex-end;
+    }
+    .action-btn {
+      width: 78px; height: 78px; border-radius: 50%;
+      border: 2px solid rgba(255, 255, 255, 0.25);
+      background: rgba(15, 23, 42, 0.85);
+      color: #f8fafc; font-weight: 700; font-size: 13px;
+      display: flex; align-items: center; justify-content: center;
+      text-align: center; box-shadow: 0 6px 16px rgba(0,0,0,0.45);
+    }
+    .action-btn:active, .action-btn.active {
+      background: rgba(56, 189, 248, 0.35);
+      border-color: #38bdf8;
+      transform: scale(0.95);
+    }
+    #eat-btn {
+      border-color: #f59e0b;
+      color: #fde68a;
+      display: none;
+    }
+    #eat-btn.visible { display: flex; }
+
+    /* Game Over Overlay */
+    #gameover {
+      position: fixed; inset: 0; background: rgba(9, 12, 16, 0.88);
+      display: none; flex-direction: column; align-items: center; justify-content: center;
+      color: #f8fafc; gap: 14px; z-index: 20;
+    }
+    #gameover.show { display: flex; }
+    #gameover button {
+      background: #ef4444; color: white; border: none;
+      padding: 12px 24px; border-radius: 8px; font-size: 16px; font-weight: 700;
     }
   </style>
 </head>
 <body>
   <div id="hud">
-    <div class="pill">Pos: <span id="coords">4.0, 4.0</span></div>
-    <div class="pill">Left Thumb: Walk &nbsp;•&nbsp; Right Thumb: Look</div>
+    <div class="stats-panel">
+      <div class="bar-row">
+        <div class="bar-label"><span>HEALTH</span><span id="hp-val">100%</span></div>
+        <div class="bar-track"><div id="hp-fill" class="bar-fill"></div></div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label"><span>STAMINA</span><span id="stam-val">100%</span></div>
+        <div class="bar-track"><div id="stam-fill" class="bar-fill"></div></div>
+      </div>
+      <div class="bar-row">
+        <div class="bar-label"><span>FULLNESS</span><span id="food-val">85%</span></div>
+        <div class="bar-track"><div id="food-fill" class="bar-fill"></div></div>
+      </div>
+    </div>
+    <div class="pill">Pos: <span id="coords">4.5, 4.5</span></div>
   </div>
+
+  <div id="actions">
+    <div id="eat-btn" class="action-btn">EAT<br/>FOOD</div>
+    <div id="sprint-btn" class="action-btn">SPRINT</div>
+  </div>
+
+  <div id="gameover">
+    <h1 style="margin:0; font-size:32px; color:#ef4444;">YOU STARVED</h1>
+    <p style="margin:0; color:#94a3b8;">Scavenge food items around the map to keep your fullness up.</p>
+    <button onclick="location.reload()">Respawn</button>
+  </div>
+
   <canvas id="game"></canvas>
 
   <script>
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
+
+    const hpFill = document.getElementById('hp-fill');
+    const stamFill = document.getElementById('stam-fill');
+    const foodFill = document.getElementById('food-fill');
+    const hpVal = document.getElementById('hp-val');
+    const stamVal = document.getElementById('stam-val');
+    const foodVal = document.getElementById('food-val');
     const coordsEl = document.getElementById('coords');
+    const sprintBtn = document.getElementById('sprint-btn');
+    const eatBtn = document.getElementById('eat-btn');
+    const gameOverEl = document.getElementById('gameover');
 
     function resize() {
       canvas.width = window.innerWidth * devicePixelRatio;
@@ -47,7 +146,7 @@
     window.addEventListener('resize', resize);
     resize();
 
-    // --- 2:1 ISOMETRIC GRID (Project Zomboid Perspective) ---
+    // --- 2:1 ISOMETRIC GRID ---
     const TILE_W = 64;
     const TILE_H = 32;
     const MAP_SIZE = 28;
@@ -55,17 +154,16 @@
     // 0 = grass, 1 = concrete floor, 2 = wall
     const map = Array.from({ length: MAP_SIZE }, (_, y) =>
       Array.from({ length: MAP_SIZE }, (_, x) => {
-        // Outer perimeter walls
         if (x === 0 || y === 0 || x === MAP_SIZE - 1 || y === MAP_SIZE - 1) return 2;
 
-        // Small starter cabin (x: 8..15, y: 8..14) with a doorway at (11, 14)
+        // Starter cabin (x: 8..15, y: 8..14) with doorway at (11, 14)
         if (x >= 8 && x <= 15 && y >= 8 && y <= 14) {
           const isEdge = x === 8 || x === 15 || y === 8 || y === 14;
           if (isEdge && !(x === 11 && y === 14)) return 2;
-          return 1; // Interior floor
+          return 1;
         }
 
-        // Second fenced lot (x: 18..23, y: 5..10) with an opening at (18, 7)
+        // Second fenced lot (x: 18..23, y: 5..10) with opening at (18, 7)
         if (x >= 18 && x <= 23 && y >= 5 && y <= 10) {
           const isEdge = x === 18 || x === 23 || y === 5 || y === 10;
           if (isEdge && !(x === 18 && y === 7)) return 2;
@@ -75,6 +173,16 @@
         return 0;
       })
     );
+
+    // --- SCAVENGEABLE FOOD ITEMS ---
+    let foods = [
+      { x: 6.5, y: 6.5, name: 'Canned Beans', restore: 35, color: '#f97316' },
+      { x: 10.5, y: 10.5, name: 'MRE Pack', restore: 50, color: '#eab308' },
+      { x: 13.5, y: 12.5, name: 'Apple', restore: 20, color: '#ef4444' },
+      { x: 20.5, y: 7.5, name: 'Canned Soup', restore: 40, color: '#f97316' },
+      { x: 15.5, y: 21.5, name: 'Energy Bar', restore: 25, color: '#a855f7' },
+      { x: 5.5, y: 19.5, name: 'Berries', restore: 18, color: '#ec4899' }
+    ];
 
     function worldToScreen(wx, wy, camX, camY) {
       return {
@@ -89,7 +197,17 @@
       y: 4.5,
       radius: 0.28,
       angle: Math.PI / 4,
-      speed: 4.5
+      walkSpeed: 4.2,
+      sprintSpeed: 7.2,
+      hp: 100,
+      maxHp: 100,
+      stamina: 100,
+      maxStamina: 100,
+      hunger: 85, // 100 = completely full, 0 = starving
+      maxHunger: 100,
+      isSprinting: false,
+      exhausted: false,
+      dead: false
     };
 
     // --- IPAD DUAL VIRTUAL STICKS ---
@@ -137,9 +255,34 @@
     canvas.addEventListener('touchend', endTouch);
     canvas.addEventListener('touchcancel', endTouch);
 
-    // Optional WASD + Mouse fallback if testing on PC
+    // --- ACTION BUTTON EVENTS (Touch + Mouse) ---
+    let sprintHeld = false;
+    sprintBtn.addEventListener('touchstart', (e) => { e.preventDefault(); sprintHeld = true; sprintBtn.classList.add('active'); });
+    sprintBtn.addEventListener('touchend', (e) => { e.preventDefault(); sprintHeld = false; sprintBtn.classList.remove('active'); });
+    sprintBtn.addEventListener('touchcancel', () => { sprintHeld = false; sprintBtn.classList.remove('active'); });
+    sprintBtn.addEventListener('mousedown', () => { sprintHeld = true; sprintBtn.classList.add('active'); });
+    window.addEventListener('mouseup', () => { sprintHeld = false; sprintBtn.classList.remove('active'); });
+
+    let nearbyFoodIndex = -1;
+    function eatNearbyFood() {
+      if (nearbyFoodIndex === -1 || player.dead) return;
+      const item = foods[nearbyFoodIndex];
+      player.hunger = Math.min(player.maxHunger, player.hunger + item.restore);
+      player.hp = Math.min(player.maxHp, player.hp + 8);
+      foods.splice(nearbyFoodIndex, 1);
+      nearbyFoodIndex = -1;
+      eatBtn.classList.remove('visible');
+    }
+    eatBtn.addEventListener('touchstart', (e) => { e.preventDefault(); eatNearbyFood(); });
+    eatBtn.addEventListener('click', eatNearbyFood);
+
+    // Keyboard fallback
     const keys = {};
-    window.addEventListener('keydown', (e) => (keys[e.key.toLowerCase()] = true));
+    window.addEventListener('keydown', (e) => {
+      const k = e.key.toLowerCase();
+      keys[k] = true;
+      if (k === 'e') eatNearbyFood();
+    });
     window.addEventListener('keyup', (e) => (keys[e.key.toLowerCase()] = false));
     window.addEventListener('mousemove', (e) => {
       if (sticks.look.id === null) {
@@ -147,7 +290,7 @@
       }
     });
 
-    // --- COLLISION HELPER (Sliding along walls) ---
+    // --- COLLISION HELPER ---
     function canWalkTo(nx, ny) {
       const r = player.radius;
       const corners = [
@@ -169,28 +312,60 @@
     let lastTime = performance.now();
 
     function update(dt) {
+      if (player.dead) return;
+
       let sx = sticks.move.dx;
       let sy = sticks.move.dy;
-
-      // Keyboard fallback
       if (keys['w'] || keys['arrowup']) sy -= 1;
       if (keys['s'] || keys['arrowdown']) sy += 1;
       if (keys['a'] || keys['arrowleft']) sx -= 1;
       if (keys['d'] || keys['arrowright']) sx += 1;
 
-      if (Math.hypot(sx, sy) > 0.1) {
-        // Map screen-space thumb direction onto 2:1 isometric axes
+      const isMoving = Math.hypot(sx, sy) > 0.1;
+      const wantsSprint = sprintHeld || keys['shift'];
+
+      // Stamina logic
+      if (wantsSprint && isMoving && player.stamina > 0 && !player.exhausted) {
+        player.isSprinting = true;
+        player.stamina = Math.max(0, player.stamina - 24 * dt);
+        if (player.stamina === 0) player.exhausted = true;
+      } else {
+        player.isSprinting = false;
+        const regenRate = isMoving ? 10 : 18;
+        player.stamina = Math.min(player.maxStamina, player.stamina + regenRate * dt);
+        if (player.stamina >= 25) player.exhausted = false;
+      }
+
+      // Hunger & Starvation logic
+      const hungerDrain = player.isSprinting ? 2.2 : (isMoving ? 1.1 : 0.6);
+      player.hunger = Math.max(0, player.hunger - hungerDrain * dt);
+
+      if (player.hunger === 0) {
+        // Starving damages health
+        player.hp = Math.max(0, player.hp - 4.5 * dt);
+      } else if (player.hunger > 60 && player.hp < player.maxHp) {
+        // Well-fed slowly heals
+        player.hp = Math.min(player.maxHp, player.hp + 1.5 * dt);
+      }
+
+      if (player.hp <= 0) {
+        player.dead = true;
+        gameOverEl.classList.add('show');
+        return;
+      }
+
+      // Movement
+      if (isMoving) {
+        const speed = player.isSprinting ? player.sprintSpeed : player.walkSpeed;
         const wx = sx + sy * 2;
         const wy = sy * 2 - sx;
         const len = Math.hypot(wx, wy) || 1;
-        const vx = (wx / len) * player.speed * dt;
-        const vy = (wy / len) * player.speed * dt;
+        const vx = (wx / len) * speed * dt;
+        const vy = (wy / len) * speed * dt;
 
-        // Slide smoothly along walls by checking X and Y independently
         if (canWalkTo(player.x + vx, player.y)) player.x += vx;
         if (canWalkTo(player.x, player.y + vy)) player.y += vy;
 
-        // Face movement direction unless right thumb is actively aiming
         if (Math.hypot(sticks.look.dx, sticks.look.dy) <= 0.15 && sticks.move.id !== null) {
           const screenMove = worldToScreen(player.x + vx, player.y + vy, 0, 0);
           const screenCurr = worldToScreen(player.x, player.y, 0, 0);
@@ -202,6 +377,31 @@
         player.angle = Math.atan2(sticks.look.dy, sticks.look.dx);
       }
 
+      // Check proximity to food items
+      nearbyFoodIndex = -1;
+      for (let i = 0; i < foods.length; i++) {
+        if (Math.hypot(foods[i].x - player.x, foods[i].y - player.y) < 1.15) {
+          nearbyFoodIndex = i;
+          break;
+        }
+      }
+      if (nearbyFoodIndex !== -1) {
+        eatBtn.innerHTML = `EAT<br/><span style="font-size:10px;font-weight:500;">${foods[nearbyFoodIndex].name}</span>`;
+        eatBtn.classList.add('visible');
+      } else {
+        eatBtn.classList.remove('visible');
+      }
+
+      // Update HUD bars
+      hpFill.style.width = `${player.hp}%`;
+      stamFill.style.width = `${player.stamina}%`;
+      stamFill.style.background = player.exhausted ? '#94a3b8' : '#38bdf8';
+      foodFill.style.width = `${player.hunger}%`;
+      foodFill.style.background = player.hunger < 25 ? '#ef4444' : '#f59e0b';
+
+      hpVal.textContent = `${Math.ceil(player.hp)}%`;
+      stamVal.textContent = `${Math.ceil(player.stamina)}%`;
+      foodVal.textContent = `${Math.ceil(player.hunger)}%`;
       coordsEl.textContent = `${player.x.toFixed(1)}, ${player.y.toFixed(1)}`;
     }
 
@@ -209,7 +409,6 @@
     function drawTile(wx, wy, camX, camY, type) {
       const p = worldToScreen(wx, wy, camX, camY);
 
-      // Floor diamond
       ctx.beginPath();
       ctx.moveTo(p.x, p.y);
       ctx.lineTo(p.x + TILE_W / 2, p.y + TILE_H / 2);
@@ -218,19 +417,17 @@
       ctx.closePath();
 
       if (type === 1) {
-        ctx.fillStyle = (wx + wy) % 2 === 0 ? '#334155' : '#2d3a4f'; // Interior floor
+        ctx.fillStyle = (wx + wy) % 2 === 0 ? '#334155' : '#2d3a4f';
       } else {
-        ctx.fillStyle = (wx + wy) % 2 === 0 ? '#1b2822' : '#17221d'; // Dark grass
+        ctx.fillStyle = (wx + wy) % 2 === 0 ? '#1b2822' : '#17221d';
       }
       ctx.fill();
       ctx.strokeStyle = 'rgba(15, 23, 42, 0.45)';
       ctx.lineWidth = 1;
       ctx.stroke();
 
-      // Extruded 2.5D Wall
       if (type === 2) {
         const h = 42;
-        // Left face
         ctx.fillStyle = '#475569';
         ctx.beginPath();
         ctx.moveTo(p.x - TILE_W / 2, p.y + TILE_H / 2);
@@ -240,7 +437,6 @@
         ctx.closePath();
         ctx.fill();
 
-        // Right face
         ctx.fillStyle = '#334155';
         ctx.beginPath();
         ctx.moveTo(p.x + TILE_W / 2, p.y + TILE_H / 2);
@@ -250,7 +446,6 @@
         ctx.closePath();
         ctx.fill();
 
-        // Top cap
         ctx.fillStyle = '#64748b';
         ctx.beginPath();
         ctx.moveTo(p.x, p.y - h);
@@ -260,6 +455,27 @@
         ctx.closePath();
         ctx.fill();
       }
+    }
+
+    function drawFood(item, camX, camY, isHighlighted) {
+      const pos = worldToScreen(item.x, item.y, camX, camY);
+
+      if (isHighlighted) {
+        ctx.beginPath();
+        ctx.ellipse(pos.x, pos.y + 4, 18, 9, 0, 0, Math.PI * 2);
+        ctx.strokeStyle = '#fde047';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
+      // Food crate / supply icon
+      ctx.fillStyle = item.color;
+      ctx.beginPath();
+      ctx.arc(pos.x, pos.y - 3, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
     }
 
     function drawPlayer(camX, camY) {
@@ -285,7 +501,7 @@
       ctx.fill();
 
       // Survivor body
-      ctx.fillStyle = '#38bdf8';
+      ctx.fillStyle = player.isSprinting ? '#7dd3fc' : '#38bdf8';
       ctx.beginPath();
       ctx.ellipse(pos.x, pos.y - 12, 9, 17, 0, 0, Math.PI * 2);
       ctx.fill();
@@ -293,7 +509,7 @@
       ctx.lineWidth = 2;
       ctx.stroke();
 
-      // Facing indicator dot
+      // Facing dot
       ctx.fillStyle = '#fef08a';
       ctx.beginPath();
       ctx.arc(pos.x + Math.cos(player.angle) * 14, pos.y - 10 + Math.sin(player.angle) * 9, 3, 0, Math.PI * 2);
@@ -325,7 +541,6 @@
 
       ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
 
-      // Smooth camera centered on player
       const camX = (player.x - player.y) * (TILE_W / 2);
       const camY = (player.x + player.y) * (TILE_H / 2);
 
@@ -339,7 +554,7 @@
         }
       }
 
-      // Depth-sort walls and player together so you walk properly in front of/behind walls
+      // Depth-sort walls, food, and player
       const renderables = [];
       for (let y = 0; y < MAP_SIZE; y++) {
         for (let x = 0; x < MAP_SIZE; x++) {
@@ -348,6 +563,14 @@
           }
         }
       }
+
+      foods.forEach((f, idx) => {
+        renderables.push({
+          depth: Math.floor(f.x) + Math.floor(f.y) + 0.05,
+          draw: () => drawFood(f, camX, camY, idx === nearbyFoodIndex)
+        });
+      });
+
       renderables.push({
         depth: Math.floor(player.x) + Math.floor(player.y) + 0.1,
         draw: () => drawPlayer(camX, camY)
@@ -363,4 +586,3 @@
   </script>
 </body>
 </html>
-
