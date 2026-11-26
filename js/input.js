@@ -8,11 +8,11 @@ export const sticks = {
 export const keys = {};
 export let sprintHeld = false;
 
-export function initInput(canvas, player, { onGrab, onToggleBag }) {
+export function initInput(canvas, player, { onGrab, onRepair, onToggleBag }) {
   const sprintBtn = document.getElementById('sprint-btn');
   const grabBtn = document.getElementById('grab-btn');
+  const repairBtn = document.getElementById('repair-btn');
 
-  // Dual-thumb touch sticks
   canvas.addEventListener('touchstart', (e) => {
     for (const t of e.changedTouches) {
       const side = t.clientX < window.innerWidth / 2 ? 'move' : 'look';
@@ -51,7 +51,6 @@ export function initInput(canvas, player, { onGrab, onToggleBag }) {
   canvas.addEventListener('touchend', endTouch);
   canvas.addEventListener('touchcancel', endTouch);
 
-  // Sprint button (touch + mouse)
   sprintBtn.addEventListener('touchstart', (e) => {
     e.preventDefault();
     sprintHeld = true;
@@ -75,18 +74,23 @@ export function initInput(canvas, player, { onGrab, onToggleBag }) {
     sprintBtn.classList.remove('active');
   });
 
-  // Grab button
   grabBtn.addEventListener('touchstart', (e) => {
     e.preventDefault();
     onGrab();
   });
   grabBtn.addEventListener('click', onGrab);
 
-  // Keyboard & mouse fallback
+  repairBtn.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    onRepair();
+  });
+  repairBtn.addEventListener('click', onRepair);
+
   window.addEventListener('keydown', (e) => {
     const k = e.key.toLowerCase();
     keys[k] = true;
     if (k === 'e') onGrab();
+    if (k === 'r') onRepair();
     if (k === 'b' || k === 'i') onToggleBag();
   });
   window.addEventListener('keyup', (e) => {
