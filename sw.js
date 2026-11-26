@@ -1,4 +1,4 @@
-const CACHE = 'isowalk-v2';
+const CACHE = 'isowalk-v3';
 const ASSETS = [
   './',
   './index.html',
@@ -8,6 +8,7 @@ const ASSETS = [
   './js/map.js',
   './js/input.js',
   './js/inventory.js',
+  './js/combat.js',
   './js/render.js'
 ];
 
