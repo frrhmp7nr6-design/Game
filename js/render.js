@@ -117,40 +117,74 @@ function drawLoot(ctx, item, camX, camY, isHighlighted) {
 }
 
 function drawZombie(ctx, z, camX, camY) {
-  const lungeOffset = z.lungeTimer > 0 ? Math.sin((z.lungeTimer / 0.25) * Math.PI) * 0.28 : 0;
+  const lungeOffset = z.lungeTimer > 0 ? Math.sin((z.lungeTimer / 0.25) * Math.PI) * 0.34 : 0;
   const drawX = z.x + Math.cos(z.facing) * lungeOffset;
   const drawY = z.y + Math.sin(z.facing) * lungeOffset;
   const pos = worldToScreen(drawX, drawY, camX, camY);
 
-  const bob = Math.abs(Math.sin(z.walkPhase || 0)) * 3.5;
-  const sway = Math.sin(z.walkPhase || 0) * 0.14;
-
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.42)';
-  ctx.beginPath();
-  ctx.ellipse(pos.x, pos.y + 2, 12, 6, 0, 0, Math.PI * 2);
-  ctx.fill();
+  const phase = z.walkPhase || 0;
+  const bob = Math.abs(Math.sin(phase)) * 4.5;
+  const sway = Math.sin(phase) * 0.18;
+  const stride = Math.sin(phase) * 5;
 
   const screenDir = worldToScreen(drawX + Math.cos(z.facing), drawY + Math.sin(z.facing), 0, 0);
   const screenOrig = worldToScreen(drawX, drawY, 0, 0);
   const sAng = Math.atan2(screenDir.y - screenOrig.y, screenDir.x - screenOrig.x);
 
-  ctx.strokeStyle = z.lungeTimer > 0 ? '#ef4444' : '#65a30d';
+  // Shadow
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+  ctx.beginPath();
+  ctx.ellipse(pos.x, pos.y + 3, 13, 6.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Animated alternating feet
+  ctx.fillStyle = '#1a2e05';
+  const perpAng = sAng + Math.PI / 2;
+  ctx.beginPath();
+  ctx.arc(
+    pos.x + Math.cos(perpAng) * 4 + Math.cos(sAng) * stride,
+    pos.y + 1 + Math.sin(perpAng) * 2.5 + Math.sin(sAng) * (stride * 0.5),
+    3,
+    0,
+    Math.PI * 2
+  );
+  ctx.arc(
+    pos.x - Math.cos(perpAng) * 4 - Math.cos(sAng) * stride,
+    pos.y + 1 - Math.sin(perpAng) * 2.5 - Math.sin(sAng) * (stride * 0.5),
+    3,
+    0,
+    Math.PI * 2
+  );
+  ctx.fill();
+
+  // Outstretched zombie arms
+  ctx.strokeStyle = z.lungeTimer > 0 ? '#ef4444' : '#84cc16';
   ctx.lineWidth = 3.5;
   ctx.beginPath();
   ctx.moveTo(pos.x, pos.y - 14 - bob);
-  ctx.lineTo(pos.x + Math.cos(sAng - 0.35) * 14, pos.y - 14 - bob + Math.sin(sAng - 0.35) * 9);
+  ctx.lineTo(pos.x + Math.cos(sAng - 0.35) * 15, pos.y - 14 - bob + Math.sin(sAng - 0.35) * 9.5);
   ctx.moveTo(pos.x, pos.y - 14 - bob);
-  ctx.lineTo(pos.x + Math.cos(sAng + 0.35) * 14, pos.y - 14 - bob + Math.sin(sAng + 0.35) * 9);
+  ctx.lineTo(pos.x + Math.cos(sAng + 0.35) * 15, pos.y - 14 - bob + Math.sin(sAng + 0.35) * 9.5);
   ctx.stroke();
 
-  ctx.fillStyle = z.hitFlash > 0 ? '#fca5a5' : z.lungeTimer > 0 ? '#84cc16' : '#4d7c0f';
+  // Zombie capsule body
+  ctx.fillStyle = z.hitFlash > 0 ? '#fca5a5' : z.lungeTimer > 0 ? '#a3e635' : '#4d7c0f';
   ctx.beginPath();
-  ctx.ellipse(pos.x, pos.y - 12 - bob, 9, 17, sway, 0, Math.PI * 2);
+  ctx.ellipse(pos.x, pos.y - 13 - bob, 9, 17, sway, 0, Math.PI * 2);
   ctx.fill();
   ctx.strokeStyle = '#1a2e05';
   ctx.lineWidth = 2;
   ctx.stroke();
 
+  // Red "!" alert badge when aggroed onto player
+  if (z.aggro && z.hp === z.maxHp) {
+    ctx.font = 'bold 13px -apple-system, sans-serif';
+    ctx.fillStyle = '#ef4444';
+    ctx.textAlign = 'center';
+    ctx.fillText('!', pos.x, pos.y - 35 - bob);
+  }
+
+  // Mini HP bar if damaged
   if (z.hp < z.maxHp) {
     const bw = 26;
     ctx.fillStyle = '#0f172a';
