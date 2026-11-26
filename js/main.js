@@ -1,14 +1,14 @@
-import { worldLoot, radioTower, worldToScreen, canWalkTo } from './map.js?v=7';
-import { sticks, keys, sprintHeld, initInput } from './input.js?v=7';
+import { worldLoot, radioTower, worldToScreen, canWalkTo } from './map.js';
+import { sticks, keys, sprintHeld, initInput } from './input.js';
 import {
   inventory,
   initInventory,
   grabLootAt,
   installRadioPartsFromBag,
   showToast
-} from './inventory.js?v=7';
-import { updateCombat, WEAPONS, zombies, spawnEvacHorde } from './combat.js?v=7';
-import { renderFrame } from './render.js?v=7';
+} from './inventory.js';
+import { updateCombat, WEAPONS, zombies, spawnEvacHorde } from './combat.js';
+import { renderFrame } from './render.js';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -50,6 +50,7 @@ const player = {
   maxHunger: 100,
   equippedWeapon: 'fists',
   attackTimer: 0,
+  hurtFlash: 0,
   isSprinting: false,
   exhausted: false,
   dead: false,
