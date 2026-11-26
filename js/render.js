@@ -1,8 +1,59 @@
-import { TILE_W, TILE_H, MAP_SIZE, map, worldLoot, radioTower, worldToScreen } from './map.js';
+import {
+  TILE_W,
+  TILE_H,
+  MAP_SIZE,
+  map,
+  doors,
+  buildings,
+  worldLoot,
+  radioTower,
+  rotateCoords,
+  worldToScreen,
+  getBuildingAt,
+  isBuildingRevealed
+} from './map.js';
 import { sticks, MAX_STICK_R } from './input.js';
 import { zombies, fxList, WEAPONS } from './combat.js';
 
-function drawTile(ctx, wx, wy, camX, camY, type) {
+function drawExtrudedBlock(ctx, wx, wy, camX, camY, h, colors, alpha = 1) {
+  const p = worldToScreen(wx, wy, camX, camY);
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
+  // Left face
+  ctx.fillStyle = colors.left;
+  ctx.beginPath();
+  ctx.moveTo(p.x - TILE_W / 2, p.y + TILE_H / 2);
+  ctx.lineTo(p.x, p.y + TILE_H);
+  ctx.lineTo(p.x, p.y + TILE_H - h);
+  ctx.lineTo(p.x - TILE_W / 2, p.y + TILE_H / 2 - h);
+  ctx.closePath();
+  ctx.fill();
+
+  // Right face
+  ctx.fillStyle = colors.right;
+  ctx.beginPath();
+  ctx.moveTo(p.x + TILE_W / 2, p.y + TILE_H / 2);
+  ctx.lineTo(p.x, p.y + TILE_H);
+  ctx.lineTo(p.x, p.y + TILE_H - h);
+  ctx.lineTo(p.x + TILE_W / 2, p.y + TILE_H / 2 - h);
+  ctx.closePath();
+  ctx.fill();
+
+  // Top cap
+  ctx.fillStyle = colors.top;
+  ctx.beginPath();
+  ctx.moveTo(p.x, p.y - h);
+  ctx.lineTo(p.x + TILE_W / 2, p.y + TILE_H / 2 - h);
+  ctx.lineTo(p.x, p.y + TILE_H - h);
+  ctx.lineTo(p.x - TILE_W / 2, p.y + TILE_H / 2 - h);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.restore();
+}
+
+function drawTile(ctx, wx, wy, camX, camY, type, isHiddenInterior) {
   const p = worldToScreen(wx, wy, camX, camY);
 
   if (p.x < -TILE_W || p.x > window.innerWidth + TILE_W || p.y < -TILE_H * 2 || p.y > window.innerHeight + TILE_H) {
@@ -16,7 +67,10 @@ function drawTile(ctx, wx, wy, camX, camY, type) {
   ctx.lineTo(p.x - TILE_W / 2, p.y + TILE_H / 2);
   ctx.closePath();
 
-  if (type === 1) {
+  if (isHiddenInterior) {
+    // Pitch-black interior fog until you open/breach a door or step inside
+    ctx.fillStyle = '#090d14';
+  } else if (type === 1) {
     ctx.fillStyle = (wx + wy) % 2 === 0 ? '#334155' : '#2d3a4f';
   } else if (type === 3) {
     ctx.fillStyle = (wx + wy) % 2 === 0 ? '#27272a' : '#202023';
@@ -24,39 +78,107 @@ function drawTile(ctx, wx, wy, camX, camY, type) {
     ctx.fillStyle = (wx + wy) % 2 === 0 ? '#1b2822' : '#17221d';
   }
   ctx.fill();
-  ctx.strokeStyle = 'rgba(15, 23, 42, 0.42)';
+  ctx.strokeStyle = isHiddenInterior ? '#090d14' : 'rgba(15, 23, 42, 0.42)';
   ctx.lineWidth = 1;
   ctx.stroke();
+}
 
-  if (type === 2) {
-    const h = 42;
-    ctx.fillStyle = '#475569';
-    ctx.beginPath();
-    ctx.moveTo(p.x - TILE_W / 2, p.y + TILE_H / 2);
-    ctx.lineTo(p.x, p.y + TILE_H);
-    ctx.lineTo(p.x, p.y + TILE_H - h);
-    ctx.lineTo(p.x - TILE_W / 2, p.y + TILE_H / 2 - h);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.fillStyle = '#334155';
-    ctx.beginPath();
-    ctx.moveTo(p.x + TILE_W / 2, p.y + TILE_H / 2);
-    ctx.lineTo(p.x, p.y + TILE_H);
-    ctx.lineTo(p.x, p.y + TILE_H - h);
-    ctx.lineTo(p.x + TILE_W / 2, p.y + TILE_H / 2 - h);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.fillStyle = '#64748b';
-    ctx.beginPath();
-    ctx.moveTo(p.x, p.y - h);
-    ctx.lineTo(p.x + TILE_W / 2, p.y + TILE_H / 2 - h);
-    ctx.lineTo(p.x, p.y + TILE_H - h);
-    ctx.lineTo(p.x - TILE_W / 2, p.y + TILE_H / 2 - h);
-    ctx.closePath();
-    ctx.fill();
+function drawWall(ctx, wx, wy, camX, camY, player) {
+  const p = worldToScreen(wx, wy, camX, camY);
+  if (p.x < -TILE_W || p.x > window.innerWidth + TILE_W || p.y < -TILE_H * 2 || p.y > window.innerHeight + TILE_H) {
+    return;
   }
+
+  // Cutaway transparency if this wall sits directly in front of the player on screen
+  const pRot = rotateCoords(player.x, player.y);
+  const wRot = rotateCoords(wx + 0.5, wy + 0.5);
+  const inFrontOfPlayer =
+    wRot.rx + wRot.ry > pRot.rx + pRot.ry &&
+    Math.abs(wRot.rx - pRot.rx) < 3.2 &&
+    Math.abs(wRot.ry - pRot.ry) < 3.2;
+
+  drawExtrudedBlock(
+    ctx,
+    wx,
+    wy,
+    camX,
+    camY,
+    42,
+    { left: '#475569', right: '#334155', top: '#64748b' },
+    inFrontOfPlayer ? 0.32 : 1
+  );
+}
+
+function drawDoor(ctx, door, camX, camY, isHighlighted) {
+  const pos = worldToScreen(door.x + 0.5, door.y + 0.5, camX, camY);
+
+  if (isHighlighted) {
+    ctx.beginPath();
+    ctx.ellipse(pos.x, pos.y + 2, 22, 11, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+  }
+
+  if (door.state === 'open') {
+    // Low threshold strip when open
+    ctx.fillStyle = 'rgba(146, 64, 14, 0.55)';
+    ctx.beginPath();
+    ctx.ellipse(pos.x, pos.y, 14, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+
+  // Closed door palette by lock status
+  const palette =
+    door.state === 'barricaded'
+      ? { left: '#7f1d1d', right: '#991b1b', top: '#b91c1c' }
+      : door.state === 'locked'
+      ? { left: '#92400e', right: '#b45309', top: '#d97706' }
+      : { left: '#78350f', right: '#92400e', top: '#b45309' };
+
+  drawExtrudedBlock(ctx, door.x, door.y, camX, camY, 36, palette, 1);
+
+  // Status icon above closed door
+  ctx.font = 'bold 11px -apple-system, sans-serif';
+  ctx.textAlign = 'center';
+  if (door.state === 'locked') {
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillText('🔒', pos.x, pos.y - 40);
+  } else if (door.state === 'barricaded') {
+    ctx.fillStyle = '#fca5a5';
+    ctx.fillText('🪵', pos.x, pos.y - 40);
+  }
+}
+
+function drawRoofCap(ctx, building, camX, camY) {
+  // Draw semi-opaque roof shingle overlay over unrevealed buildings
+  for (let y = building.y1; y <= building.y2; y++) {
+    for (let x = building.x1; x <= building.x2; x++) {
+      const p = worldToScreen(x, y, camX, camY);
+      if (p.x < -TILE_W || p.x > window.innerWidth + TILE_W || p.y < -TILE_H * 2 || p.y > window.innerHeight + TILE_H) {
+        continue;
+      }
+      const h = 42;
+      ctx.fillStyle = (x + y) % 2 === 0 ? 'rgba(30, 41, 59, 0.94)' : 'rgba(23, 32, 46, 0.94)';
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y - h);
+      ctx.lineTo(p.x + TILE_W / 2, p.y + TILE_H / 2 - h);
+      ctx.lineTo(p.x, p.y + TILE_H - h);
+      ctx.lineTo(p.x - TILE_W / 2, p.y + TILE_H / 2 - h);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  // Building name label on roof
+  const midX = (building.x1 + building.x2 + 1) / 2;
+  const midY = (building.y1 + building.y2 + 1) / 2;
+  const center = worldToScreen(midX, midY, camX, camY);
+  ctx.font = 'bold 12px -apple-system, sans-serif';
+  ctx.fillStyle = 'rgba(203, 213, 225, 0.85)';
+  ctx.textAlign = 'center';
+  ctx.fillText(building.name.toUpperCase(), center.x, center.y - 42);
 }
 
 function drawRadioTower(ctx, camX, camY) {
@@ -131,13 +253,11 @@ function drawZombie(ctx, z, camX, camY) {
   const screenOrig = worldToScreen(drawX, drawY, 0, 0);
   const sAng = Math.atan2(screenDir.y - screenOrig.y, screenDir.x - screenOrig.x);
 
-  // Shadow
   ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
   ctx.beginPath();
   ctx.ellipse(pos.x, pos.y + 3, 13, 6.5, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Animated alternating feet
   ctx.fillStyle = '#1a2e05';
   const perpAng = sAng + Math.PI / 2;
   ctx.beginPath();
@@ -157,7 +277,6 @@ function drawZombie(ctx, z, camX, camY) {
   );
   ctx.fill();
 
-  // Outstretched zombie arms
   ctx.strokeStyle = z.lungeTimer > 0 ? '#ef4444' : '#84cc16';
   ctx.lineWidth = 3.5;
   ctx.beginPath();
@@ -167,7 +286,6 @@ function drawZombie(ctx, z, camX, camY) {
   ctx.lineTo(pos.x + Math.cos(sAng + 0.35) * 15, pos.y - 14 - bob + Math.sin(sAng + 0.35) * 9.5);
   ctx.stroke();
 
-  // Zombie capsule body
   ctx.fillStyle = z.hitFlash > 0 ? '#fca5a5' : z.lungeTimer > 0 ? '#a3e635' : '#4d7c0f';
   ctx.beginPath();
   ctx.ellipse(pos.x, pos.y - 13 - bob, 9, 17, sway, 0, Math.PI * 2);
@@ -176,7 +294,6 @@ function drawZombie(ctx, z, camX, camY) {
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Red "!" alert badge when aggroed onto player
   if (z.aggro && z.hp === z.maxHp) {
     ctx.font = 'bold 13px -apple-system, sans-serif';
     ctx.fillStyle = '#ef4444';
@@ -184,7 +301,6 @@ function drawZombie(ctx, z, camX, camY) {
     ctx.fillText('!', pos.x, pos.y - 35 - bob);
   }
 
-  // Mini HP bar if damaged
   if (z.hp < z.maxHp) {
     const bw = 26;
     ctx.fillStyle = '#0f172a';
@@ -321,61 +437,105 @@ function drawJoysticks(ctx) {
   }
 }
 
-export function renderFrame(ctx, player, nearbyLootIndex, objectiveTarget) {
+export function renderFrame(ctx, player, nearbyLootIndex, nearbyDoor, objectiveTarget) {
   ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
 
-  const camX = (player.x - player.y) * (TILE_W / 2);
-  const camY = (player.x + player.y) * (TILE_H / 2);
+  const pRot = rotateCoords(player.x, player.y);
+  const camX = (pRot.rx - pRot.ry) * (TILE_W / 2);
+  const camY = (pRot.rx + pRot.ry) * (TILE_H / 2);
 
   const minX = Math.max(0, Math.floor(player.x - 22));
   const maxX = Math.min(MAP_SIZE - 1, Math.ceil(player.x + 22));
   const minY = Math.max(0, Math.floor(player.y - 22));
   const maxY = Math.min(MAP_SIZE - 1, Math.ceil(player.y + 22));
 
-  for (let sum = minX + minY; sum <= maxX + maxY; sum++) {
+  // Determine which buildings are currently revealed
+  const revealedMap = {};
+  for (const b of buildings) {
+    revealedMap[b.id] = isBuildingRevealed(b, player);
+  }
+
+  // Draw floors first
+  for (let y = minY; y <= maxY; y++) {
     for (let x = minX; x <= maxX; x++) {
-      const y = sum - x;
-      if (y >= minY && y <= maxY && map[y][x] !== 2) {
-        drawTile(ctx, x, y, camX, camY, map[y][x]);
+      if (map[y][x] !== 2) {
+        const b = getBuildingAt(x + 0.5, y + 0.5);
+        const hidden = b ? !revealedMap[b.id] : false;
+        drawTile(ctx, x, y, camX, camY, map[y][x], hidden);
       }
     }
   }
 
+  // Depth-sort using rotated coordinates so Painter's Algorithm works in all 4 camera angles
   const renderables = [];
+  const depthOf = (wx, wy) => {
+    const r = rotateCoords(wx, wy);
+    return r.rx + r.ry;
+  };
+
   for (let y = minY; y <= maxY; y++) {
     for (let x = minX; x <= maxX; x++) {
       if (map[y][x] === 2) {
-        renderables.push({ depth: x + y, draw: () => drawTile(ctx, x, y, camX, camY, 2) });
+        renderables.push({
+          depth: depthOf(x, y),
+          draw: () => drawWall(ctx, x, y, camX, camY, player)
+        });
       }
     }
   }
 
-  renderables.push({
-    depth: Math.floor(radioTower.x) + Math.floor(radioTower.y) + 0.06,
-    draw: () => drawRadioTower(ctx, camX, camY)
-  });
+  for (const d of doors) {
+    if (d.x >= minX && d.x <= maxX && d.y >= minY && d.y <= maxY) {
+      renderables.push({
+        depth: depthOf(d.x, d.y) + 0.02,
+        draw: () => drawDoor(ctx, d, camX, camY, nearbyDoor === d)
+      });
+    }
+  }
 
-  worldLoot.forEach((item, idx) => {
+  // Hide Radio Tower if Evac Compound is still unrevealed
+  const evacBldg = getBuildingAt(radioTower.x, radioTower.y);
+  if (!evacBldg || revealedMap[evacBldg.id]) {
     renderables.push({
-      depth: Math.floor(item.x) + Math.floor(item.y) + 0.05,
+      depth: depthOf(radioTower.x, radioTower.y) + 0.06,
+      draw: () => drawRadioTower(ctx, camX, camY)
+    });
+  }
+
+  // Hide interior loot until building is revealed
+  worldLoot.forEach((item, idx) => {
+    const b = getBuildingAt(item.x, item.y);
+    if (b && !revealedMap[b.id]) return;
+    renderables.push({
+      depth: depthOf(item.x, item.y) + 0.05,
       draw: () => drawLoot(ctx, item, camX, camY, idx === nearbyLootIndex)
     });
   });
 
+  // Hide interior zombies until building is revealed!
   zombies.forEach((z) => {
+    const b = getBuildingAt(z.x, z.y);
+    if (b && !revealedMap[b.id]) return;
     renderables.push({
-      depth: Math.floor(z.x) + Math.floor(z.y) + 0.08,
+      depth: depthOf(z.x, z.y) + 0.08,
       draw: () => drawZombie(ctx, z, camX, camY)
     });
   });
 
   renderables.push({
-    depth: Math.floor(player.x) + Math.floor(player.y) + 0.1,
+    depth: depthOf(player.x, player.y) + 0.1,
     draw: () => drawPlayer(ctx, player, camX, camY, objectiveTarget)
   });
 
   renderables.sort((a, b) => a.depth - b.depth);
   for (const item of renderables) item.draw();
+
+  // Draw roof caps over unrevealed buildings so interiors stay mysterious until breached
+  for (const b of buildings) {
+    if (!revealedMap[b.id]) {
+      drawRoofCap(ctx, b, camX, camY);
+    }
+  }
 
   drawCombatFx(ctx, camX, camY);
   drawJoysticks(ctx);
