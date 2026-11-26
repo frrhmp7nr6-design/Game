@@ -1,7 +1,7 @@
 import { worldLoot, worldToScreen, canWalkTo } from './map.js';
 import { sticks, keys, sprintHeld, initInput } from './input.js';
 import { initInventory, grabLootAt } from './inventory.js';
-import { updateCombat, WEAPONS } from './combat.js';
+import { updateCombat, WEAPONS, zombies } from './combat.js';
 import { renderFrame } from './render.js';
 
 const canvas = document.getElementById('game');
@@ -84,12 +84,11 @@ function update(dt) {
     if (player.stamina >= 25) player.exhausted = false;
   }
 
-  // Slower, gentler Hunger & Starvation pacing
+  // Gentle Hunger & Starvation pacing
   const hungerDrain = player.isSprinting ? 1.15 : isMoving ? 0.55 : 0.3;
   player.hunger = Math.max(0, player.hunger - hungerDrain * dt);
 
   if (player.hunger === 0) {
-    // Gentle starvation tick (~0.65 HP/sec instead of 4.5 HP/sec)
     player.hp = Math.max(0, player.hp - 0.65 * dt);
   } else if (player.hunger > 65 && player.hp < player.maxHp) {
     player.hp = Math.min(player.maxHp, player.hp + 1.2 * dt);
@@ -159,7 +158,7 @@ function update(dt) {
   hpVal.textContent = `${Math.ceil(player.hp)}%`;
   stamVal.textContent = `${Math.ceil(player.stamina)}%`;
   foodVal.textContent = `${Math.ceil(player.hunger)}%`;
-  coordsEl.textContent = `${wName} • ${player.x.toFixed(1)}, ${player.y.toFixed(1)}`;
+  coordsEl.textContent = `${wName} • Zombies: ${zombies.length} • ${player.x.toFixed(1)}, ${player.y.toFixed(1)}`;
 }
 
 let lastTime = performance.now();
