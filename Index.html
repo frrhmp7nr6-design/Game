@@ -1,1 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>IsoWalk Prototype</title>
+  <style>
+    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+    html, body {
+      margin: 0; padding: 0; width: 100%; height: 100%;
+      overflow: hidden; background: #0f1318; touch-action: none;
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    canvas { display: block; width: 100vw; height: 100vh; }
+    #hud {
+      position: fixed; top: 14px; left: 16px; right: 16px;
+      display: flex; justify-content: space-between; align-items: center;
+      pointer-events: none; color: #cbd5e1; font-size: 13px;
+    }
+    .pill {
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid #334155;
+      padding: 6px 12px;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <div class="pill">Pos: <span id="coords">4.0, 4.0</span></div>
+    <div class="pill">Left Thumb: Walk &nbsp;•&nbsp; Right Thumb: Look</div>
+  </div>
+  <canvas id="game"></canvas>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const coordsEl = document.getElementById('coords');
+
+    function resize() {
+      canvas.width = window.innerWidth * devicePixelRatio;
+      canvas.height = window.innerHeight * devicePixelRatio;
+      ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    // --- 2:1 ISOMETRIC GRID (Project Zomboid Perspective) ---
+    const TILE_W = 64;
+    const TILE_H = 32;
+    const MAP_SIZE = 28;
+
+    // 0 = grass, 1 = concrete floor, 2 = wall
+    const map = Array.from({ length: MAP_SIZE }, (_, y) =>
+      Array.from({ length: MAP_SIZE }, (_, x) => {
+        // Outer perimeter walls
+        if (x === 0 || y === 0 || x === MAP_SIZE - 1 || y === MAP_SIZE - 1) return 2;
+
+        // Small starter cabin (x: 8..15, y: 8..14) with a doorway at (11, 14)
+        if (x >= 8 && x <= 15 && y >= 8 && y <= 14) {
+          const isEdge = x === 8 || x === 15 || y === 8 || y === 14;
+          if (isEdge && !(x === 11 && y === 14)) return 2;
+          return 1; // Interior floor
+        }
+
+        // Second fenced lot (x: 18..23, y: 5..10) with an opening at (18, 7)
+        if (x >= 18 && x <= 23 && y >= 5 && y <= 10) {
+          const isEdge = x === 18 || x === 23 || y === 5 || y === 10;
+          if (isEdge && !(x === 18 && y === 7)) return 2;
+          return 1;
+        }
+
+        return 0;
+      })
+    );
+
+    function worldToScreen(wx, wy, camX, camY) {
+      return {
+        x: (wx - wy) * (TILE_W / 2) + window.innerWidth / 2 - camX,
+        y: (wx + wy) * (TILE_H / 2) + window.innerHeight / 2 - camY
+      };
+    }
+
+    // --- PLAYER STATE ---
+    const player = {
+      x: 4.5,
+      y: 4.5,
+      radius: 0.28,
+      angle: Math.PI / 4,
+      speed: 4.5
+    };
+
+    // --- IPAD DUAL VIRTUAL STICKS ---
+    const sticks = {
+      move: { id: null, sx: 0, sy: 0, dx: 0, dy: 0 },
+      look: { id: null, sx: 0, sy: 0, dx: 0, dy: 0 }
+    };
+    const MAX_R = 52;
+
+    canvas.addEventListener('touchstart', (e) => {
+      for (const t of e.changedTouches) {
+        const side = t.clientX < window.innerWidth / 2 ? 'move' : 'look';
+        if (sticks[side].id === null) {
+          sticks[side] = { id: t.identifier, sx: t.clientX, sy: t.clientY, dx: 0, dy: 0 };
+        }
+      }
+    });
+
+    canvas.addEventListener('touchmove', (e) => {
+      for (const t of e.changedTouches) {
+        for (const side of ['move', 'look']) {
+          const s = sticks[side];
+          if (s.id === t.identifier) {
+            const vx = t.clientX - s.sx;
+            const vy = t.clientY - s.sy;
+            const dist = Math.hypot(vx, vy);
+            const clamped = Math.min(dist, MAX_R);
+            const ang = Math.atan2(vy, vx);
+            s.dx = (Math.cos(ang) * clamped) / MAX_R;
+            s.dy = (Math.sin(ang) * clamped) / MAX_R;
+          }
+        }
+      }
+    });
+
+    function endTouch(e) {
+      for (const t of e.changedTouches) {
+        for (const side of ['move', 'look']) {
+          if (sticks[side].id === t.identifier) {
+            sticks[side] = { id: null, sx: 0, sy: 0, dx: 0, dy: 0 };
+          }
+        }
+      }
+    }
+    canvas.addEventListener('touchend', endTouch);
+    canvas.addEventListener('touchcancel', endTouch);
+
+    // Optional WASD + Mouse fallback if testing on PC
+    const keys = {};
+    window.addEventListener('keydown', (e) => (keys[e.key.toLowerCase()] = true));
+    window.addEventListener('keyup', (e) => (keys[e.key.toLowerCase()] = false));
+    window.addEventListener('mousemove', (e) => {
+      if (sticks.look.id === null) {
+        player.angle = Math.atan2(e.clientY - window.innerHeight / 2, e.clientX - window.innerWidth / 2);
+      }
+    });
+
+    // --- COLLISION HELPER (Sliding along walls) ---
+    function canWalkTo(nx, ny) {
+      const r = player.radius;
+      const corners = [
+        [nx - r, ny - r],
+        [nx + r, ny - r],
+        [nx - r, ny + r],
+        [nx + r, ny + r]
+      ];
+      for (const [cx, cy] of corners) {
+        const tx = Math.floor(cx);
+        const ty = Math.floor(cy);
+        if (ty < 0 || ty >= MAP_SIZE || tx < 0 || tx >= MAP_SIZE) return false;
+        if (map[ty][tx] === 2) return false;
+      }
+      return true;
+    }
+
+    // --- UPDATE LOOP ---
+    let lastTime = performance.now();
+
+    function update(dt) {
+      let sx = sticks.move.dx;
+      let sy = sticks.move.dy;
+
+      // Keyboard fallback
+      if (keys['w'] || keys['arrowup']) sy -= 1;
+      if (keys['s'] || keys['arrowdown']) sy += 1;
+      if (keys['a'] || keys['arrowleft']) sx -= 1;
+      if (keys['d'] || keys['arrowright']) sx += 1;
+
+      if (Math.hypot(sx, sy) > 0.1) {
+        // Map screen-space thumb direction onto 2:1 isometric axes
+        const wx = sx + sy * 2;
+        const wy = sy * 2 - sx;
+        const len = Math.hypot(wx, wy) || 1;
+        const vx = (wx / len) * player.speed * dt;
+        const vy = (wy / len) * player.speed * dt;
+
+        // Slide smoothly along walls by checking X and Y independently
+        if (canWalkTo(player.x + vx, player.y)) player.x += vx;
+        if (canWalkTo(player.x, player.y + vy)) player.y += vy;
+
+        // Face movement direction unless right thumb is actively aiming
+        if (Math.hypot(sticks.look.dx, sticks.look.dy) <= 0.15 && sticks.move.id !== null) {
+          const screenMove = worldToScreen(player.x + vx, player.y + vy, 0, 0);
+          const screenCurr = worldToScreen(player.x, player.y, 0, 0);
+          player.angle = Math.atan2(screenMove.y - screenCurr.y, screenMove.x - screenCurr.x);
+        }
+      }
+
+      if (Math.hypot(sticks.look.dx, sticks.look.dy) > 0.15) {
+        player.angle = Math.atan2(sticks.look.dy, sticks.look.dx);
+      }
+
+      coordsEl.textContent = `${player.x.toFixed(1)}, ${player.y.toFixed(1)}`;
+    }
+
+    // --- RENDERING ---
+    function drawTile(wx, wy, camX, camY, type) {
+      const p = worldToScreen(wx, wy, camX, camY);
+
+      // Floor diamond
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x + TILE_W / 2, p.y + TILE_H / 2);
+      ctx.lineTo(p.x, p.y + TILE_H);
+      ctx.lineTo(p.x - TILE_W / 2, p.y + TILE_H / 2);
+      ctx.closePath();
+
+      if (type === 1) {
+        ctx.fillStyle = (wx + wy) % 2 === 0 ? '#334155' : '#2d3a4f'; // Interior floor
+      } else {
+        ctx.fillStyle = (wx + wy) % 2 === 0 ? '#1b2822' : '#17221d'; // Dark grass
+      }
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(15, 23, 42, 0.45)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Extruded 2.5D Wall
+      if (type === 2) {
+        const h = 42;
+        // Left face
+        ctx.fillStyle = '#475569';
+        ctx.beginPath();
+        ctx.moveTo(p.x - TILE_W / 2, p.y + TILE_H / 2);
+        ctx.lineTo(p.x, p.y + TILE_H);
+        ctx.lineTo(p.x, p.y + TILE_H - h);
+        ctx.lineTo(p.x - TILE_W / 2, p.y + TILE_H / 2 - h);
+        ctx.closePath();
+        ctx.fill();
+
+        // Right face
+        ctx.fillStyle = '#334155';
+        ctx.beginPath();
+        ctx.moveTo(p.x + TILE_W / 2, p.y + TILE_H / 2);
+        ctx.lineTo(p.x, p.y + TILE_H);
+        ctx.lineTo(p.x, p.y + TILE_H - h);
+        ctx.lineTo(p.x + TILE_W / 2, p.y + TILE_H / 2 - h);
+        ctx.closePath();
+        ctx.fill();
+
+        // Top cap
+        ctx.fillStyle = '#64748b';
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y - h);
+        ctx.lineTo(p.x + TILE_W / 2, p.y + TILE_H / 2 - h);
+        ctx.lineTo(p.x, p.y + TILE_H - h);
+        ctx.lineTo(p.x - TILE_W / 2, p.y + TILE_H / 2 - h);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+
+    function drawPlayer(camX, camY) {
+      const pos = worldToScreen(player.x, player.y, camX, camY);
+
+      // Vision Cone
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(pos.x, pos.y);
+      ctx.arc(pos.x, pos.y, 230, player.angle - 0.6, player.angle + 0.6);
+      ctx.closePath();
+      const grad = ctx.createRadialGradient(pos.x, pos.y, 8, pos.x, pos.y, 230);
+      grad.addColorStop(0, 'rgba(253, 224, 71, 0.24)');
+      grad.addColorStop(1, 'rgba(253, 224, 71, 0.0)');
+      ctx.fillStyle = grad;
+      ctx.fill();
+      ctx.restore();
+
+      // Ground shadow
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+      ctx.beginPath();
+      ctx.ellipse(pos.x, pos.y + 2, 12, 6, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Survivor body
+      ctx.fillStyle = '#38bdf8';
+      ctx.beginPath();
+      ctx.ellipse(pos.x, pos.y - 12, 9, 17, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Facing indicator dot
+      ctx.fillStyle = '#fef08a';
+      ctx.beginPath();
+      ctx.arc(pos.x + Math.cos(player.angle) * 14, pos.y - 10 + Math.sin(player.angle) * 9, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawJoysticks() {
+      for (const side of ['move', 'look']) {
+        const s = sticks[side];
+        if (s.id !== null) {
+          ctx.beginPath();
+          ctx.arc(s.sx, s.sy, MAX_R, 0, Math.PI * 2);
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
+          ctx.lineWidth = 2;
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.arc(s.sx + s.dx * MAX_R, s.sy + s.dy * MAX_R, 20, 0, Math.PI * 2);
+          ctx.fillStyle = side === 'move' ? 'rgba(56, 189, 248, 0.45)' : 'rgba(253, 224, 71, 0.45)';
+          ctx.fill();
+        }
+      }
+    }
+
+    function render(now) {
+      const dt = Math.min((now - lastTime) / 1000, 0.1);
+      lastTime = now;
+      update(dt);
+
+      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+
+      // Smooth camera centered on player
+      const camX = (player.x - player.y) * (TILE_W / 2);
+      const camY = (player.x + player.y) * (TILE_H / 2);
+
+      // Draw floors first
+      for (let sum = 0; sum < MAP_SIZE * 2; sum++) {
+        for (let x = 0; x < MAP_SIZE; x++) {
+          const y = sum - x;
+          if (y >= 0 && y < MAP_SIZE && map[y][x] !== 2) {
+            drawTile(x, y, camX, camY, map[y][x]);
+          }
+        }
+      }
+
+      // Depth-sort walls and player together so you walk properly in front of/behind walls
+      const renderables = [];
+      for (let y = 0; y < MAP_SIZE; y++) {
+        for (let x = 0; x < MAP_SIZE; x++) {
+          if (map[y][x] === 2) {
+            renderables.push({ depth: x + y, draw: () => drawTile(x, y, camX, camY, 2) });
+          }
+        }
+      }
+      renderables.push({
+        depth: Math.floor(player.x) + Math.floor(player.y) + 0.1,
+        draw: () => drawPlayer(camX, camY)
+      });
+
+      renderables.sort((a, b) => a.depth - b.depth);
+      for (const item of renderables) item.draw();
+
+      drawJoysticks();
+      requestAnimationFrame(render);
+    }
+    requestAnimationFrame(render);
+  </script>
+</body>
+</html>
 
