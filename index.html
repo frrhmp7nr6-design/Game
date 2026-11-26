@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>IsoWalk Survival</title>
   <link rel="manifest" href="./manifest.json" />
-  <link rel="stylesheet" href="./css/style.css" />
+  <link rel="stylesheet" href="./css/style.css?v=6" />
 </head>
 <body>
   <div id="hud">
@@ -26,9 +26,15 @@
       </div>
     </div>
 
+    <div id="mission-box" class="mission-panel">
+      <div class="mission-title">📡 EVAC RADIO: <span id="mission-pct">0/4 PARTS</span></div>
+      <div id="mission-sub" class="mission-sub">Find 4 radio parts across town & repair the SE Tower</div>
+      <div class="bar-track" style="margin-top:5px;"><div id="mission-fill" class="bar-fill"></div></div>
+    </div>
+
     <div class="top-right">
-      <div class="pill" id="coords">4.5, 4.5</div>
-      <button id="bag-toggle">🎒 BAG (<span id="bag-count">0/6</span>)</button>
+      <div class="pill" id="coords">Fists • 6.5, 6.5</div>
+      <button id="bag-toggle">🎒 BAG (<span id="bag-count">0/8</span>)</button>
     </div>
   </div>
 
@@ -37,20 +43,21 @@
   <div id="bag-drawer">
     <div class="bag-header">
       <span>BACKPACK</span>
-      <span id="bag-slots-label" style="color:#94a3b8;">0 / 6 Slots</span>
+      <span id="bag-slots-label" style="color:#94a3b8;">0 / 8 Slots</span>
     </div>
     <div id="bag-list"></div>
   </div>
 
   <div id="actions">
+    <div id="repair-btn" class="action-btn">REPAIR<br/>TOWER</div>
     <div id="grab-btn" class="action-btn">GRAB</div>
     <div id="sprint-btn" class="action-btn">SPRINT</div>
   </div>
 
   <div id="gameover">
-    <h1>YOU STARVED</h1>
-    <p>Open your backpack to eat stored food before fullness hits 0%.</p>
-    <button onclick="location.reload()">Respawn</button>
+    <h1>YOU DIED</h1>
+    <p>Keep your fullness up and clear zombies around buildings.</p>
+    <button onclick="location.reload()">Play Again</button>
   </div>
 
   <canvas id="game"></canvas>
@@ -67,6 +74,6 @@
       navigator.serviceWorker.register('./sw.js');
     }
   </script>
-  <script type="module" src="./js/main.js"></script>
+  <script type="module" src="./js/main.js?v=6"></script>
 </body>
 </html>
