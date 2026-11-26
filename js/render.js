@@ -1,9 +1,14 @@
-import { TILE_W, TILE_H, MAP_SIZE, map, worldLoot, worldToScreen } from './map.js';
+import { TILE_W, TILE_H, MAP_SIZE, map, worldLoot, radioTower, worldToScreen } from './map.js';
 import { sticks, MAX_STICK_R } from './input.js';
 import { zombies, fxList, WEAPONS } from './combat.js';
 
 function drawTile(ctx, wx, wy, camX, camY, type) {
   const p = worldToScreen(wx, wy, camX, camY);
+
+  // Screen-space culling so 64x64 map runs at locked 60fps
+  if (p.x < -TILE_W || p.x > window.innerWidth + TILE_W || p.y < -TILE_H * 2 || p.y > window.innerHeight + TILE_H) {
+    return;
+  }
 
   ctx.beginPath();
   ctx.moveTo(p.x, p.y);
@@ -14,11 +19,13 @@ function drawTile(ctx, wx, wy, camX, camY, type) {
 
   if (type === 1) {
     ctx.fillStyle = (wx + wy) % 2 === 0 ? '#334155' : '#2d3a4f';
+  } else if (type === 3) {
+    ctx.fillStyle = (wx + wy) % 2 === 0 ? '#27272a' : '#202023'; // Asphalt road
   } else {
     ctx.fillStyle = (wx + wy) % 2 === 0 ? '#1b2822' : '#17221d';
   }
   ctx.fill();
-  ctx.strokeStyle = 'rgba(15, 23, 42, 0.45)';
+  ctx.strokeStyle = 'rgba(15, 23, 42, 0.42)';
   ctx.lineWidth = 1;
   ctx.stroke();
 
@@ -53,20 +60,62 @@ function drawTile(ctx, wx, wy, camX, camY, type) {
   }
 }
 
+function drawRadioTower(ctx, camX, camY) {
+  const pos = worldToScreen(radioTower.x, radioTower.y, camX, camY);
+
+  // Beacon ring
+  ctx.beginPath();
+  ctx.ellipse(pos.x, pos.y + 4, 28, 14, 0, 0, Math.PI * 2);
+  ctx.strokeStyle = radioTower.evacActive ? '#22c55e' : '#38bdf8';
+  ctx.lineWidth = 2.5;
+  ctx.stroke();
+
+  // Generator base
+  ctx.fillStyle = '#0284c7';
+  ctx.fillRect(pos.x - 12, pos.y - 24, 24, 24);
+  ctx.strokeStyle = '#0f172a';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(pos.x - 12, pos.y - 24, 24, 24);
+
+  // Antenna mast
+  ctx.strokeStyle = '#cbd5e1';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(pos.x, pos.y - 24);
+  ctx.lineTo(pos.x, pos.y - 68);
+  ctx.stroke();
+
+  // Blinking beacon tip
+  const pulse = Math.sin(performance.now() / 220) > 0;
+  ctx.fillStyle = radioTower.evacActive ? '#4ade80' : pulse ? '#ef4444' : '#7f1d1d';
+  ctx.beginPath();
+  ctx.arc(pos.x, pos.y - 70, 5, 0, Math.PI * 2);
+  ctx.fill();
+}
+
 function drawLoot(ctx, item, camX, camY, isHighlighted) {
   const pos = worldToScreen(item.x, item.y, camX, camY);
 
+  if (item.type === 'part') {
+    // Glowing cyan ring for mission radio parts
+    ctx.beginPath();
+    ctx.ellipse(pos.x, pos.y + 4, 15, 7.5, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(34, 211, 238, 0.75)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
   if (isHighlighted) {
     ctx.beginPath();
-    ctx.ellipse(pos.x, pos.y + 4, 18, 9, 0, 0, Math.PI * 2);
+    ctx.ellipse(pos.x, pos.y + 4, 19, 9.5, 0, 0, Math.PI * 2);
     ctx.strokeStyle = '#4ade80';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 2.5;
     ctx.stroke();
   }
 
   ctx.fillStyle = item.color;
   ctx.beginPath();
-  ctx.arc(pos.x, pos.y - 3, 7, 0, Math.PI * 2);
+  ctx.arc(pos.x, pos.y - 3, item.type === 'part' ? 8 : 7, 0, Math.PI * 2);
   ctx.fill();
   ctx.strokeStyle = '#0f172a';
   ctx.lineWidth = 1.5;
@@ -76,13 +125,11 @@ function drawLoot(ctx, item, camX, camY, isHighlighted) {
 function drawZombie(ctx, z, camX, camY) {
   const pos = worldToScreen(z.x, z.y, camX, camY);
 
-  // Shadow
   ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
   ctx.beginPath();
   ctx.ellipse(pos.x, pos.y + 2, 12, 6, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Zombie capsule
   ctx.fillStyle = z.hitFlash > 0 ? '#fca5a5' : '#4d7c0f';
   ctx.beginPath();
   ctx.ellipse(pos.x, pos.y - 12, 9, 17, 0, 0, Math.PI * 2);
@@ -91,7 +138,6 @@ function drawZombie(ctx, z, camX, camY) {
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Mini HP bar if damaged
   if (z.hp < z.maxHp) {
     const bw = 26;
     ctx.fillStyle = '#0f172a';
@@ -101,11 +147,11 @@ function drawZombie(ctx, z, camX, camY) {
   }
 }
 
-function drawPlayer(ctx, player, camX, camY) {
+function drawPlayer(ctx, player, camX, camY, objectiveTarget) {
   const pos = worldToScreen(player.x, player.y, camX, camY);
   const weapon = WEAPONS[player.equippedWeapon] || WEAPONS.fists;
 
-  // Vision Cone (scales subtly with equipped weapon range)
+  // Vision Cone
   const coneRadius = weapon.type === 'ranged' ? 290 : 210;
   ctx.save();
   ctx.beginPath();
@@ -118,6 +164,30 @@ function drawPlayer(ctx, player, camX, camY) {
   ctx.fillStyle = grad;
   ctx.fill();
   ctx.restore();
+
+  // Objective Compass Arrow orbiting player
+  if (objectiveTarget) {
+    const tPos = worldToScreen(objectiveTarget.x, objectiveTarget.y, camX, camY);
+    const dist = Math.hypot(tPos.x - pos.x, tPos.y - pos.y);
+    if (dist > 45) {
+      const ang = Math.atan2(tPos.y - pos.y, tPos.x - pos.x);
+      const ax = pos.x + Math.cos(ang) * 44;
+      const ay = pos.y - 10 + Math.sin(ang) * 32;
+
+      ctx.save();
+      ctx.translate(ax, ay);
+      ctx.rotate(ang);
+      ctx.fillStyle = objectiveTarget.isTower ? '#4ade80' : '#22d3ee';
+      ctx.beginPath();
+      ctx.moveTo(9, 0);
+      ctx.lineTo(-5, -5);
+      ctx.lineTo(-2, 0);
+      ctx.lineTo(-5, 5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+  }
 
   // Ground shadow
   ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
@@ -154,7 +224,6 @@ function drawCombatFx(ctx, camX, camY) {
     const to = worldToScreen(fx.toX, fx.toY, camX, camY);
 
     if (fx.type === 'ranged') {
-      // Bullet tracer line
       ctx.save();
       ctx.strokeStyle = `rgba(253, 224, 71, ${alpha})`;
       ctx.lineWidth = 2.5;
@@ -164,7 +233,6 @@ function drawCombatFx(ctx, camX, camY) {
       ctx.stroke();
       ctx.restore();
     } else {
-      // Melee swing arc
       ctx.save();
       ctx.strokeStyle = `rgba(224, 242, 254, ${alpha * 0.85})`;
       ctx.lineWidth = 5;
@@ -194,31 +262,42 @@ function drawJoysticks(ctx) {
   }
 }
 
-export function renderFrame(ctx, player, nearbyLootIndex) {
+export function renderFrame(ctx, player, nearbyLootIndex, objectiveTarget) {
   ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
 
   const camX = (player.x - player.y) * (TILE_W / 2);
   const camY = (player.x + player.y) * (TILE_H / 2);
 
+  // Only iterate tiles within a 22-tile window around the player
+  const minX = Math.max(0, Math.floor(player.x - 22));
+  const maxX = Math.min(MAP_SIZE - 1, Math.ceil(player.x + 22));
+  const minY = Math.max(0, Math.floor(player.y - 22));
+  const maxY = Math.min(MAP_SIZE - 1, Math.ceil(player.y + 22));
+
   // Draw floors first
-  for (let sum = 0; sum < MAP_SIZE * 2; sum++) {
-    for (let x = 0; x < MAP_SIZE; x++) {
+  for (let sum = minX + minY; sum <= maxX + maxY; sum++) {
+    for (let x = minX; x <= maxX; x++) {
       const y = sum - x;
-      if (y >= 0 && y < MAP_SIZE && map[y][x] !== 2) {
+      if (y >= minY && y <= maxY && map[y][x] !== 2) {
         drawTile(ctx, x, y, camX, camY, map[y][x]);
       }
     }
   }
 
-  // Depth-sort walls, loot, zombies, and player
+  // Depth-sort visible walls, tower, loot, zombies, and player
   const renderables = [];
-  for (let y = 0; y < MAP_SIZE; y++) {
-    for (let x = 0; x < MAP_SIZE; x++) {
+  for (let y = minY; y <= maxY; y++) {
+    for (let x = minX; x <= maxX; x++) {
       if (map[y][x] === 2) {
         renderables.push({ depth: x + y, draw: () => drawTile(ctx, x, y, camX, camY, 2) });
       }
     }
   }
+
+  renderables.push({
+    depth: Math.floor(radioTower.x) + Math.floor(radioTower.y) + 0.06,
+    draw: () => drawRadioTower(ctx, camX, camY)
+  });
 
   worldLoot.forEach((item, idx) => {
     renderables.push({
@@ -236,7 +315,7 @@ export function renderFrame(ctx, player, nearbyLootIndex) {
 
   renderables.push({
     depth: Math.floor(player.x) + Math.floor(player.y) + 0.1,
-    draw: () => drawPlayer(ctx, player, camX, camY)
+    draw: () => drawPlayer(ctx, player, camX, camY, objectiveTarget)
   });
 
   renderables.sort((a, b) => a.depth - b.depth);
