@@ -1,0 +1,307 @@
+* {
+  box-sizing: border-box;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #0f1318;
+  touch-action: none;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+}
+
+/* Top HUD */
+#hud {
+  position: fixed;
+  top: 14px;
+  left: 16px;
+  right: 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  pointer-events: none;
+  color: #e2e8f0;
+  font-size: 13px;
+  z-index: 5;
+}
+
+.stats-panel {
+  background: rgba(15, 23, 42, 0.88);
+  border: 1px solid #334155;
+  padding: 10px 12px;
+  border-radius: 10px;
+  width: 210px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.bar-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.bar-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: #cbd5e1;
+}
+
+.bar-track {
+  width: 100%;
+  height: 8px;
+  background: #1e293b;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid #0f172a;
+}
+
+.bar-fill {
+  height: 100%;
+  width: 100%;
+  transition: width 0.1s linear;
+}
+
+#hp-fill { background: #ef4444; }
+#stam-fill { background: #38bdf8; }
+#food-fill { background: #f59e0b; }
+
+.top-right {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  pointer-events: auto;
+}
+
+.pill {
+  background: rgba(15, 23, 42, 0.88);
+  border: 1px solid #334155;
+  padding: 8px 12px;
+  border-radius: 8px;
+  color: #cbd5e1;
+  font-weight: 600;
+}
+
+#bag-toggle {
+  background: rgba(30, 41, 59, 0.95);
+  border: 1px solid #64748b;
+  color: #f8fafc;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+#bag-toggle:active {
+  transform: scale(0.96);
+}
+
+/* Backpack Drawer */
+#bag-drawer {
+  position: fixed;
+  top: 58px;
+  right: 16px;
+  width: 290px;
+  max-height: calc(100vh - 170px);
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid #475569;
+  border-radius: 12px;
+  padding: 12px;
+  color: #f8fafc;
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 15;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.6);
+  overflow-y: auto;
+}
+
+#bag-drawer.open {
+  display: flex;
+}
+
+.bag-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #334155;
+  padding-bottom: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+#bag-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.bag-item {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.bag-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bag-item-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.bag-item-sub {
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.bag-btns {
+  display: flex;
+  gap: 6px;
+}
+
+.mini-btn {
+  border: none;
+  border-radius: 6px;
+  padding: 6px 9px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.use-btn { background: #16a34a; color: white; }
+.drop-btn { background: #475569; color: #e2e8f0; }
+
+/* Toast Notification */
+#toast {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid #38bdf8;
+  color: #e0f2fe;
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+  z-index: 10;
+}
+
+#toast.show {
+  opacity: 1;
+}
+
+/* Bottom-Right iPad Action Buttons */
+#actions {
+  position: fixed;
+  bottom: 26px;
+  right: 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-end;
+  z-index: 6;
+}
+
+.action-btn {
+  width: 78px;
+  height: 78px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  background: rgba(15, 23, 42, 0.88);
+  color: #f8fafc;
+  font-weight: 700;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+}
+
+.action-btn:active,
+.action-btn.active {
+  background: rgba(56, 189, 248, 0.35);
+  border-color: #38bdf8;
+  transform: scale(0.95);
+}
+
+#grab-btn {
+  border-color: #22c55e;
+  color: #bbf7d0;
+  display: none;
+}
+
+#grab-btn.visible {
+  display: flex;
+}
+
+/* Game Over Overlay */
+#gameover {
+  position: fixed;
+  inset: 0;
+  background: rgba(9, 12, 16, 0.88);
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #f8fafc;
+  gap: 14px;
+  z-index: 25;
+}
+
+#gameover.show {
+  display: flex;
+}
+
+#gameover h1 {
+  margin: 0;
+  font-size: 32px;
+  color: #ef4444;
+}
+
+#gameover p {
+  margin: 0;
+  color: #94a3b8;
+}
+
+#gameover button {
+  background: #ef4444;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 700;
+}
