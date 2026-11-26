@@ -1,14 +1,14 @@
-import { worldLoot, radioTower, worldToScreen, canWalkTo } from './map.js?v=6';
-import { sticks, keys, sprintHeld, initInput } from './input.js?v=6';
+import { worldLoot, radioTower, worldToScreen, canWalkTo } from './map.js?v=7';
+import { sticks, keys, sprintHeld, initInput } from './input.js?v=7';
 import {
   inventory,
   initInventory,
   grabLootAt,
   installRadioPartsFromBag,
   showToast
-} from './inventory.js?v=6';
-import { updateCombat, WEAPONS, zombies, spawnEvacHorde } from './combat.js?v=6';
-import { renderFrame } from './render.js?v=6';
+} from './inventory.js?v=7';
+import { updateCombat, WEAPONS, zombies, spawnEvacHorde } from './combat.js?v=7';
+import { renderFrame } from './render.js?v=7';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -36,8 +36,8 @@ window.addEventListener('resize', resize);
 resize();
 
 const player = {
-  x: 6.5,
-  y: 6.5,
+  x: 7.5,
+  y: 7.5,
   radius: 0.28,
   angle: Math.PI / 4,
   walkSpeed: 4.4,
@@ -92,7 +92,6 @@ initInput(canvas, player, {
 });
 
 function getObjectiveTarget() {
-  // If carrying a radio part or all parts are collected, point to the Evac Tower
   const carryingPart = inventory.some((i) => i.type === 'part');
   const remainingWorldParts = worldLoot.filter((i) => i.type === 'part');
 
@@ -100,7 +99,6 @@ function getObjectiveTarget() {
     return { x: radioTower.x, y: radioTower.y, isTower: true };
   }
 
-  // Otherwise point to closest uncollected Radio Part on the map
   let closest = null;
   let bestDist = Infinity;
   for (const part of remainingWorldParts) {
@@ -126,7 +124,6 @@ function update(dt) {
   const isMoving = Math.hypot(sx, sy) > 0.1;
   const wantsSprint = sprintHeld || keys['shift'];
 
-  // Stamina logic
   if (wantsSprint && isMoving && player.stamina > 0 && !player.exhausted) {
     player.isSprinting = true;
     player.stamina = Math.max(0, player.stamina - 22 * dt);
@@ -138,7 +135,6 @@ function update(dt) {
     if (player.stamina >= 25) player.exhausted = false;
   }
 
-  // Gentle Hunger & Starvation pacing
   const hungerDrain = player.isSprinting ? 1.0 : isMoving ? 0.5 : 0.25;
   player.hunger = Math.max(0, player.hunger - hungerDrain * dt);
 
@@ -148,7 +144,6 @@ function update(dt) {
     player.hp = Math.min(player.maxHp, player.hp + 1.2 * dt);
   }
 
-  // Movement
   if (isMoving) {
     const speed = player.isSprinting ? player.sprintSpeed : player.walkSpeed;
     const wx = sx + sy * 2;
@@ -171,7 +166,6 @@ function update(dt) {
     player.angle = Math.atan2(sticks.look.dy, sticks.look.dx);
   }
 
-  // Auto-combat & zombie AI
   updateCombat(dt, player);
 
   if (player.hp <= 0) {
@@ -186,7 +180,6 @@ function update(dt) {
     return;
   }
 
-  // Extraction countdown logic
   if (radioTower.evacActive && !radioTower.complete) {
     radioTower.evacTimer = Math.max(0, radioTower.evacTimer - dt);
     missionPctEl.textContent = `EVAC IN ${Math.ceil(radioTower.evacTimer)}s`;
@@ -214,7 +207,6 @@ function update(dt) {
     missionFillEl.style.width = `${(installed / radioTower.requiredParts) * 100}%`;
   }
 
-  // Proximity check for Radio Tower repair button
   const distToTower = Math.hypot(radioTower.x - player.x, radioTower.y - player.y);
   const hasPartInBag = inventory.some((i) => i.type === 'part');
   if (distToTower <= 1.8 && hasPartInBag && !radioTower.evacActive) {
@@ -223,7 +215,6 @@ function update(dt) {
     repairBtn.classList.remove('visible');
   }
 
-  // Proximity check for loot
   nearbyLootIndex = -1;
   for (let i = 0; i < worldLoot.length; i++) {
     if (Math.hypot(worldLoot[i].x - player.x, worldLoot[i].y - player.y) < 1.15) {
@@ -239,7 +230,6 @@ function update(dt) {
     grabBtn.classList.remove('visible');
   }
 
-  // HUD updates
   const wName = WEAPONS[player.equippedWeapon]?.name || 'Fists';
   hpFill.style.width = `${player.hp}%`;
   stamFill.style.width = `${player.stamina}%`;
