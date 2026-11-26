@@ -1,4 +1,5 @@
 import { worldLoot } from './map.js';
+import { WEAPONS } from './combat.js';
 
 export const BAG_CAPACITY = 6;
 export const inventory = [];
@@ -37,8 +38,18 @@ export function renderBag(player) {
   bagSlotsLabel.textContent = `${inventory.length} / ${BAG_CAPACITY} Slots`;
   bagList.innerHTML = '';
 
+  // Show currently equipped weapon header inside bag
+  const eqName = WEAPONS[player.equippedWeapon]?.name || 'Fists';
+  const eqBanner = document.createElement('div');
+  eqBanner.style.cssText = 'font-size:11px; color:#38bdf8; font-weight:700; padding-bottom:4px;';
+  eqBanner.textContent = `EQUIPPED: ${eqName.toUpperCase()}`;
+  bagList.appendChild(eqBanner);
+
   if (inventory.length === 0) {
-    bagList.innerHTML = `<div style="color:#64748b; font-size:12px; text-align:center; padding:14px 0;">Bag is empty. Walk near supplies and tap GRAB.</div>`;
+    bagList.insertAdjacentHTML(
+      'beforeend',
+      `<div style="color:#64748b; font-size:12px; text-align:center; padding:12px 0;">Bag is empty. Walk near supplies and tap GRAB.</div>`
+    );
     return;
   }
 
@@ -49,14 +60,18 @@ export function renderBag(player) {
     let desc = '';
     if (item.type === 'food') desc = `+${item.hunger}% Fullness, +${item.hp}% HP`;
     else if (item.type === 'med') desc = `+${item.hp}% Health`;
-    else desc = 'Building material';
+    else if (item.type === 'weapon') {
+      const w = WEAPONS[item.weaponId];
+      desc = `${w.damage} DMG • ${w.type === 'ranged' ? 'Ranged' : 'Melee'}`;
+    } else desc = 'Material';
 
-    const canUse = item.type === 'food' || item.type === 'med';
-    const useLabel = item.type === 'med' ? 'HEAL' : 'EAT';
+    const isEquipped = item.type === 'weapon' && player.equippedWeapon === item.weaponId;
+    const canUse = item.type === 'food' || item.type === 'med' || (item.type === 'weapon' && !isEquipped);
+    const useLabel = item.type === 'med' ? 'HEAL' : item.type === 'weapon' ? 'EQUIP' : 'EAT';
 
     row.innerHTML = `
       <div class="bag-item-info">
-        <span class="bag-item-name">${item.name}</span>
+        <span class="bag-item-name">${item.name} ${isEquipped ? '<span style="color:#38bdf8;font-size:10px;">(ACTIVE)</span>' : ''}</span>
         <span class="bag-item-sub">${desc}</span>
       </div>
       <div class="bag-btns">
@@ -89,14 +104,30 @@ export function grabLootAt(player, lootIndex) {
   const item = worldLoot[lootIndex];
   inventory.push(item);
   worldLoot.splice(lootIndex, 1);
+
+  // Auto-equip if picking up a weapon while unarmed
+  if (item.type === 'weapon' && player.equippedWeapon === 'fists') {
+    player.equippedWeapon = item.weaponId;
+    showToast(`Equipped ${item.name}`);
+  } else {
+    showToast(`Stashed ${item.name}`);
+  }
+
   renderBag(player);
-  showToast(`Stashed ${item.name}`);
   return true;
 }
 
 function useBagItem(player, idx) {
   const item = inventory[idx];
   if (!item || player.dead) return;
+
+  if (item.type === 'weapon') {
+    player.equippedWeapon = item.weaponId;
+    renderBag(player);
+    showToast(`Equipped ${item.name}`);
+    return;
+  }
+
   if (item.hunger) player.hunger = Math.min(player.maxHunger, player.hunger + item.hunger);
   if (item.hp) player.hp = Math.min(player.maxHp, player.hp + item.hp);
   inventory.splice(idx, 1);
@@ -107,6 +138,11 @@ function useBagItem(player, idx) {
 function dropBagItem(player, idx) {
   const item = inventory[idx];
   if (!item || player.dead) return;
+
+  if (item.type === 'weapon' && player.equippedWeapon === item.weaponId) {
+    player.equippedWeapon = 'fists';
+  }
+
   worldLoot.push({
     ...item,
     x: player.x + (Math.random() - 0.5) * 0.4,
