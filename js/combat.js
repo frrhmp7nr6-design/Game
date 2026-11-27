@@ -1,5 +1,5 @@
-import { worldToScreen, isTileBlocked, CENTER, campUpgrades } from './map.js';
-import { killedZombieIds } from './chunks.js';
+import { worldToScreen, isTileBlocked, campUpgrades } from './map.js';
+import { killedZombieIds, isInsideQuarryHub } from './chunks.js';
 import { broadcastWorldEvent } from './net.js';
 
 export const WEAPONS = {
@@ -62,7 +62,7 @@ export function hasLineOfSight(x1, y1, x2, y2, activeChunks) {
 }
 
 function canZombieWalkTo(nx, ny, activeChunks) {
-  if (Math.abs(nx - CENTER) <= 64 && Math.abs(ny - CENTER) <= 64) return false;
+  if (isInsideQuarryHub(nx, ny)) return false;
 
   const r = 0.25;
   const corners = [
@@ -167,7 +167,6 @@ export function updateCombat(dt, player, activeChunks) {
       if (z.hp <= 0 || killedZombieIds.has(z.id)) {
         if (!killedZombieIds.has(z.id)) {
           killedZombieIds.add(z.id);
-          // Award Scrap Credits for kills (Juggernaut bosses grant +8 Scrap!)
           player.scrap = (player.scrap || 0) + (z.isBoss ? 8 : 1);
           broadcastWorldEvent({ kind: 'zkill', id: z.id });
         }
