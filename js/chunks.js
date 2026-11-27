@@ -1,3 +1,5 @@
+import { atlasState, applyAtlasToChunk } from './atlas.js';
+
 export const CHUNK_SIZE = 32;
 export const WORLD_CHUNKS = 32;
 export const MAP_SIZE = CHUNK_SIZE * WORLD_CHUNKS; // 1024
@@ -8,19 +10,15 @@ export const QUARRY_Y = 610;
 
 const chunkCache = new Map();
 
+export function clearChunkCache() {
+  chunkCache.clear();
+}
+
 export const openedDoors = new Set();
 export const doorDamage = new Map();
 export const lootedIds = new Set();
 export const killedZombieIds = new Set();
 export const droppedLoot = [];
-
-// Tile IDs:
-// 0 = Pine Grass / Rural Field
-// 1 = Concrete Sidewalk / Quarry Floor / Interior Floor
-// 2 = Wall / Median Barrier / Fence
-// 3 = Asphalt Roadway (Freeway, Highway, Boulevard, Avenue, Street, Rural Rd)
-// 4 = Euharlee Creek Water
-// 5 = Unpaved Dirt / Gravel Road
 
 function hash2d(x, y) {
   let n = Math.imul(x, 374761393) + Math.imul(y, 668265263);
@@ -57,18 +55,14 @@ export function isCreekTile(wx, wy) {
   return Math.abs(wx - creekCenter) <= 3.2;
 }
 
-// Detailed Roadway Classification:
-// returns { tile: 0|1|2|3|5, class: 'none'|'freeway'|'ramp'|'highway'|'boulevard'|'avenue'|'street'|'rural'|'dirt'|'sidewalk'|'median' }
 export function classifyRoad(wx, wy) {
-  // 1. INTERSTATE FREEWAY (I-20 Corridor across far north y ~ 115, 7 tiles wide with center median, zero cross intersections)
   const i20Y = 115 + Math.sin(wx * 0.005) * 8;
   const dyI20 = wy - i20Y;
   if (Math.abs(dyI20) <= 3.6) {
-    if (Math.abs(dyI20) <= 0.55) return { tile: 2, kind: 'median' }; // Concrete center divider
+    if (Math.abs(dyI20) <= 0.55) return { tile: 2, kind: 'median' };
     return { tile: 3, kind: 'freeway' };
   }
 
-  // Grade-separated Interchange Ramps connecting I-20 (y~115) down to Piedmont Blvd (x~576) & US-278 (y~252)
   if (wy >= 115 && wy <= 252) {
     const t = (wy - 115) / 137;
     const westRampX = 530 + t * 44;
@@ -78,29 +72,24 @@ export function classifyRoad(wx, wy) {
     }
   }
 
-  // 2. HIGHWAY (US-278 East-West 4-lane arterial y ~ 252)
   const us278Y = 252 + Math.sin(wx * 0.007) * 10;
   if (Math.abs(wy - us278Y) <= 2.3) {
     return { tile: 3, kind: 'highway' };
   }
 
-  // 3. BOULEVARD (Piedmont Blvd: wide urban thoroughfare x = 576 with planted green median)
   if (wy >= 250 && wy <= 542) {
     const dxBlvd = wx - 576;
     if (Math.abs(dxBlvd) <= 2.6) {
-      if (Math.abs(dxBlvd) <= 0.5) return { tile: 0, kind: 'median' }; // Landscaped green median strip
+      if (Math.abs(dxBlvd) <= 0.5) return { tile: 0, kind: 'median' };
       return { tile: 3, kind: 'boulevard' };
     }
   }
 
-  // 4. S MARBLE ST (Main connector from Rockmart Quarry north into Downtown)
   const marbleX = 520 + (wy < 555 ? (555 - wy) * 0.14 : 0);
   if (wy >= 252 && wy <= 625 && Math.abs(wx - marbleX) <= 1.8) {
     return { tile: 3, kind: 'avenue' };
   }
 
-  // 5. URBAN AVENUES (East-West grid arteries) & STREETS (North-South local access)
-  // Asphalt pass runs BEFORE sidewalks so intersections are 100% clean asphalt!
   const inDowntown = wx >= 360 && wx <= 630 && wy >= 290 && wy <= 540;
   const inSuburb = wx >= 220 && wx <= 360 && wy >= 340 && wy <= 500;
 
@@ -118,7 +107,6 @@ export function classifyRoad(wx, wy) {
     if (Math.abs(wx - 240) <= 1.4 || Math.abs(wx - 320) <= 1.4) return { tile: 3, kind: 'street' };
   }
 
-  // 6. RURAL ROADS (Narrow 2-lane winding countryside asphalt: Morgan Valley Rd & Hutchins Mtn Rd)
   if (wx < 515 && wy > 460) {
     const morganY = 485 + (515 - wx) * 0.42 + Math.sin(wx * 0.022) * 18;
     if (Math.abs(wy - morganY) <= 1.4) return { tile: 3, kind: 'rural' };
@@ -128,7 +116,6 @@ export function classifyRoad(wx, wy) {
     if (Math.abs(wx - hutchinsX) <= 1.4) return { tile: 3, kind: 'rural' };
   }
 
-  // 7. DIRT ROADS (Unpaved rural logging & farm tracks in outer countryside)
   if (wy > 650 && wx < 500) {
     const dirtY = 740 + Math.sin(wx * 0.03) * 28;
     if (Math.abs(wy - dirtY) <= 1.1) return { tile: 5, kind: 'dirt' };
@@ -138,7 +125,6 @@ export function classifyRoad(wx, wy) {
     if (Math.abs(wx - dirtX) <= 1.1) return { tile: 5, kind: 'dirt' };
   }
 
-  // 8. SIDEWALKS (Only placed adjacent to urban streets/avenues where no asphalt exists)
   if (inDowntown) {
     for (const ay of [310, 358, 406, 454, 502]) {
       if (Math.abs(wy - ay) <= 2.6) return { tile: 1, kind: 'sidewalk' };
@@ -205,7 +191,7 @@ const COMMERCIAL_PALETTES = [
   { name: 'Midtown Stone', wallL: '#57534e', wallR: '#44403c', roofL: '#292524', roofR: '#1c1917', awning: '#7c3aed' }
 ];
 
-function stampCompoundBuilding(chunk, config) {
+export function stampCompoundBuilding(chunk, config) {
   const {
     id,
     name,
@@ -324,19 +310,16 @@ function stampCompoundBuilding(chunk, config) {
     }
   }
 
-  // Wall-aligned 3D Interior Furniture (counters along back wall, beds in corners, aisles in stores)
   const props = [];
   const mainR = rects[0];
   if (mainR && mainR.x2 - mainR.x1 >= 6 && mainR.y2 - mainR.y1 >= 6) {
     if (category === 'commercial') {
-      // Back checkout counter along north wall + two parallel retail shelving aisles
       props.push({ x: mainR.x1 + 2, y: mainR.y1 + 1, w: 3, d: 1, kind: 'counter' });
       props.push({ x: mainR.x1 + 2, y: mainR.y1 + 4, w: 3, d: 1, kind: 'shelf' });
       if (mainR.x2 - mainR.x1 >= 9) {
         props.push({ x: mainR.x2 - 4, y: mainR.y1 + 4, w: 3, d: 1, kind: 'shelf' });
       }
     } else {
-      // Bedroom bed tucked in NW corner + kitchen counter along NE wall + dining table
       props.push({ x: mainR.x1 + 1, y: mainR.y1 + 1, w: 2, d: 2, kind: 'bed' });
       props.push({ x: mainR.x2 - 3, y: mainR.y1 + 1, w: 3, d: 1, kind: 'counter' });
       props.push({ x: mainR.x1 + 2, y: mainR.y2 - 3, w: 2, d: 1, kind: 'table' });
@@ -471,41 +454,82 @@ function generateChunk(cx, cy) {
   const baseX = cx * CHUNK_SIZE;
   const baseY = cy * CHUNK_SIZE;
 
-  for (let ly = 0; ly < CHUNK_SIZE; ly++) {
-    const wy = baseY + ly;
-    for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-      const wx = baseX + lx;
-      const idx = ly * CHUNK_SIZE + lx;
+  // Use cached/live OSM GeoJSON Atlas if loaded; otherwise fall back to procedural Rockmart terrain
+  const usedOsmAtlas = atlasState.loaded
+    ? applyAtlasToChunk(chunk, baseX, baseY, CHUNK_SIZE, stampCompoundBuilding)
+    : false;
 
-      if (wx < 10 || wy < 10 || wx >= MAP_SIZE - 10 || wy >= MAP_SIZE - 10) {
-        tiles[idx] = 2;
-        continue;
+  if (!usedOsmAtlas) {
+    for (let ly = 0; ly < CHUNK_SIZE; ly++) {
+      const wy = baseY + ly;
+      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+        const wx = baseX + lx;
+        const idx = ly * CHUNK_SIZE + lx;
+
+        if (wx < 10 || wy < 10 || wx >= MAP_SIZE - 10 || wy >= MAP_SIZE - 10) {
+          tiles[idx] = 2;
+          continue;
+        }
+
+        const roadInfo = classifyRoad(wx, wy);
+        if (roadInfo.kind !== 'none') {
+          tiles[idx] = roadInfo.tile;
+          roadKinds[idx] = roadInfo.kind;
+          continue;
+        }
+
+        if (isQuarryPerimeter(wx, wy)) {
+          tiles[idx] = 2;
+          continue;
+        }
+
+        if (isInsideQuarryHub(wx, wy)) {
+          tiles[idx] = 1;
+          continue;
+        }
+
+        if (isCreekTile(wx, wy)) {
+          tiles[idx] = 4;
+          continue;
+        }
+
+        tiles[idx] = 0;
       }
-
-      const roadInfo = classifyRoad(wx, wy);
-      if (roadInfo.kind !== 'none') {
-        tiles[idx] = roadInfo.tile;
-        roadKinds[idx] = roadInfo.kind;
-        continue;
-      }
-
-      if (isQuarryPerimeter(wx, wy)) {
-        tiles[idx] = 2;
-        continue;
-      }
-
-      if (isInsideQuarryHub(wx, wy)) {
-        tiles[idx] = 1;
-        continue;
-      }
-
-      if (isCreekTile(wx, wy)) {
-        tiles[idx] = 4;
-        continue;
-      }
-
-      tiles[idx] = 0;
     }
+  } else {
+    // Ensure Quarry Safe Hub perimeter & floor are always protected even on OSM terrain
+    for (let ly = 0; ly < CHUNK_SIZE; ly++) {
+      const wy = baseY + ly;
+      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+        const wx = baseX + lx;
+        const idx = ly * CHUNK_SIZE + lx;
+        if (isQuarryPerimeter(wx, wy) && tiles[idx] !== 3) {
+          tiles[idx] = 2;
+        } else if (isInsideQuarryHub(wx, wy) && tiles[idx] !== 3) {
+          tiles[idx] = 1;
+        }
+      }
+    }
+
+    // Populate loot & zombies inside OSM-imported buildings
+    const midX = baseX + 16;
+    const midY = baseY + 16;
+    const zone = getZoneInfo(midX, midY);
+    chunk.buildings.forEach((b, idx) => {
+      const lx = Math.floor((b.x1 + b.x2) / 2) + 0.5;
+      const ly = Math.floor((b.y1 + b.y2) / 2) + 0.5;
+      const crateRoll = hash2d(cx + idx * 19, cy + 59);
+      const supplyItem =
+        zone.ring === 3
+          ? { name: 'Prototype Convoy Core', type: 'heavy', value: 6, color: '#e879f9' }
+          : crateRoll > 0.72
+          ? { name: 'Heavy Supply Crate', type: 'heavy', value: 4, color: '#fb923c' }
+          : { name: 'Scrap Plating', type: 'convoy', value: 1, color: '#22d3ee' };
+      addChunkLoot(chunk, `osm-loot-${cx}-${cy}-${idx}`, lx, ly, supplyItem);
+      if (zone.ring > 0) {
+        addChunkZombie(chunk, `osm-z-${cx}-${cy}-${idx}`, b.x1 + 2.5, b.y1 + 2.5, zone.ring, false);
+      }
+    });
   }
 
   // 1. Rockmart Slate Quarry Safe Hub Landmarks
@@ -565,7 +589,7 @@ function generateChunk(cx, cy) {
     }
   }
 
-  // 2. Rockmart Police Precinct
+  // 2. Rockmart Police Precinct (always guaranteed so Police Radios can be looted)
   if (cx === 17 && cy === 14) {
     stampCompoundBuilding(chunk, {
       id: 'rockmart-pd',
@@ -606,85 +630,25 @@ function generateChunk(cx, cy) {
     return chunk;
   }
 
-  // 3. Hometown Pizza
-  if (cx === 15 && cy === 14) {
-    stampCompoundBuilding(chunk, {
-      id: 'hometown-pizza',
-      name: 'Hometown Pizza',
-      category: 'commercial',
-      rects: [{ x1: 492, y1: 462, x2: 505, y2: 472 }],
-      doorSpecs: [{ x: 498, y: 472, state: 'unlocked', dir: { dx: 0, dy: 1 } }],
-      seed: 0.14
-    });
-    addChunkLoot(chunk, 'pizza-food', 498.5, 466.5, {
-      name: 'MRE Pack',
-      type: 'food',
-      hunger: 55,
-      hp: 10,
-      color: '#eab308'
-    });
-    addChunkLoot(chunk, 'pizza-sup', 495.5, 465.5, {
-      name: 'Scrap Plating',
-      type: 'convoy',
-      value: 1,
-      color: '#22d3ee'
-    });
-    addChunkZombie(chunk, 'z-pizza-1', 502.5, 466.5, 1, false);
+  if (usedOsmAtlas) {
+    const midX = baseX + 16;
+    const midY = baseY + 16;
+    const zone = getZoneInfo(midX, midY);
+    if (zone.ring > 0 && zone.ring < 4) {
+      for (let i = 0; i < 2; i++) {
+        const zx = baseX + 4 + Math.floor(hash2d(cx + i * 13, cy + 5) * 24) + 0.5;
+        const zy = baseY + 4 + Math.floor(hash2d(cx + 7, cy + i * 19) * 24) + 0.5;
+        const tx = Math.floor(zx - baseX);
+        const ty = Math.floor(zy - baseY);
+        if (tiles[ty * CHUNK_SIZE + tx] !== 2 && !isInsideQuarryHub(zx, zy)) {
+          addChunkZombie(chunk, `z-osm-out-${cx}-${cy}-${i}`, zx, zy, zone.ring, false);
+        }
+      }
+    }
     return chunk;
   }
 
-  // 4. Low True Hardware
-  if (cx === 14 && cy === 8) {
-    stampCompoundBuilding(chunk, {
-      id: 'low-true-hw',
-      name: 'Low True Hardware',
-      category: 'commercial',
-      rects: [
-        { x1: 454, y1: 262, x2: 470, y2: 274 },
-        { x1: 454, y1: 274, x2: 460, y2: 278 }
-      ],
-      doorSpecs: [{ x: 463, y: 262, state: 'locked', dir: { dx: 0, dy: -1 } }],
-      seed: 0.61
-    });
-    addChunkLoot(chunk, 'hw-axe', 458.5, 268.5, {
-      name: 'Fire Axe',
-      type: 'weapon',
-      weaponId: 'axe',
-      color: '#f43f5e'
-    });
-    addChunkLoot(chunk, 'hw-crate', 466.5, 269.5, {
-      name: 'Heavy Supply Crate',
-      type: 'heavy',
-      value: 4,
-      color: '#fb923c'
-    });
-    addChunkZombie(chunk, 'z-hw-1', 463.5, 270.5, 2, false);
-    return chunk;
-  }
-
-  // 5. Walmart Supercenter
-  if (cx === 25 && cy === 7) {
-    stampCompoundBuilding(chunk, {
-      id: 'walmart-sc',
-      name: 'Walmart Supercenter',
-      category: 'commercial',
-      rects: [
-        { x1: 804, y1: 224, x2: 822, y2: 240 },
-        { x1: 816, y1: 240, x2: 822, y2: 244 }
-      ],
-      doorSpecs: [{ x: 811, y: 240, state: 'barricaded', dir: { dx: 0, dy: 1 } }],
-      seed: 0.88
-    });
-    addChunkLoot(chunk, 'wm-core', 813.5, 231.5, {
-      name: 'Prototype Convoy Core',
-      type: 'heavy',
-      value: 6,
-      color: '#e879f9'
-    });
-    addChunkZombie(chunk, 'z-wm-boss', 813.5, 228.5, 3, true);
-    return chunk;
-  }
-
+  // Fallback procedural buildings when OSM atlas isn't active
   const midX = baseX + 16;
   const midY = baseY + 16;
   const zone = getZoneInfo(midX, midY);
