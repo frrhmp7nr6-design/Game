@@ -1,24 +1,30 @@
 const ATLAS_MAP_SIZE = 1024;
 
-// Tightened Rockmart, GA bounding box centered on Rockmart Slate Corp Quarry, Downtown & Euharlee Creek
+// Centered on Downtown Rockmart & Rockmart Slate Corp Quarry (34.0025° N, -85.0475° W)
+// Uniform 1.60m per tile with cos(lat) longitude scaling -> 1,638m x 1,638m true-angle map
+const CENTER_LAT = 34.0025;
+const CENTER_LON = -85.0475;
+const METERS_PER_TILE = 1.60;
+const METERS_PER_DEG_LAT = 110922;
+const METERS_PER_DEG_LON = 111320 * Math.cos((CENTER_LAT * Math.PI) / 180); // ~92,288m at 34°N
+
+const HALF_SPAN_METERS = (ATLAS_MAP_SIZE * METERS_PER_TILE) / 2;
 const DEFAULT_BOUNDS = {
-  minLat: 33.9935,
-  maxLat: 34.0115,
-  minLon: -85.0575,
-  maxLon: -85.0375
+  minLat: CENTER_LAT - HALF_SPAN_METERS / METERS_PER_DEG_LAT,
+  maxLat: CENTER_LAT + HALF_SPAN_METERS / METERS_PER_DEG_LAT,
+  minLon: CENTER_LON - HALF_SPAN_METERS / METERS_PER_DEG_LON,
+  maxLon: CENTER_LON + HALF_SPAN_METERS / METERS_PER_DEG_LON
 };
 
 const DB_NAME = 'isowalk-osm-atlas';
 const STORE_NAME = 'sectors';
-const SECTOR_KEY = 'rockmart-ga-v3';
+const SECTOR_KEY = 'rockmart-ga-metric-v4';
 
 const OVERPASS_MIRRORS = [
   'https://overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
   'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
 ];
-
-let atlasBounds = { ...DEFAULT_BOUNDS };
 
 export const atlasState = {
   loaded: false,
@@ -27,13 +33,17 @@ export const atlasState = {
   error: '',
   features: [],
   quarryPolygons: [],
-  quarryCenter: { x: 540, y: 745 }
+  quarryCenter: { x: 540, y: 745 },
+  policeLocation: null
 };
 
 export function latLonToTile(lat, lon) {
-  const tx = ((lon - atlasBounds.minLon) / (atlasBounds.maxLon - atlasBounds.minLon)) * ATLAS_MAP_SIZE;
-  const ty = ((atlasBounds.maxLat - lat) / (atlasBounds.maxLat - atlasBounds.minLat)) * ATLAS_MAP_SIZE;
-  return { x: tx, y: ty };
+  const dxMeters = (lon - CENTER_LON) * METERS_PER_DEG_LON;
+  const dyMeters = (CENTER_LAT - lat) * METERS_PER_DEG_LAT;
+  return {
+    x: ATLAS_MAP_SIZE / 2 + dxMeters / METERS_PER_TILE,
+    y: ATLAS_MAP_SIZE / 2 + dyMeters / METERS_PER_TILE
+  };
 }
 
 function openAtlasDB() {
@@ -74,7 +84,7 @@ async function writeCachedSector(key, data) {
       tx.onerror = () => resolve();
     });
   } catch {
-    // Ignore storage quota errors
+    // Ignore private browsing storage restrictions
   }
 }
 
@@ -120,6 +130,7 @@ function parseOsmElementsToGeoJSON(elements) {
 function ingestFeatureCollection(gj) {
   atlasState.features = [];
   atlasState.quarryPolygons = [];
+  atlasState.policeLocation = null;
   const seenIds = new Set();
 
   for (const f of gj.features || []) {
@@ -134,6 +145,7 @@ function ingestFeatureCollection(gj) {
       const xs = pts.map((p) => p.x);
       const ys = pts.map((p) => p.y);
       atlasState.features.push({
+        id: f.id,
         kind: 'line',
         props: f.properties || {},
         pts,
@@ -147,6 +159,7 @@ function ingestFeatureCollection(gj) {
       const xs = pts.map((p) => p.x);
       const ys = pts.map((p) => p.y);
       const poly = {
+        id: f.id,
         kind: 'poly',
         props: f.properties || {},
         pts,
@@ -156,13 +169,19 @@ function ingestFeatureCollection(gj) {
         maxY: Math.max(...ys)
       };
       atlasState.features.push(poly);
+
       if (poly.props.landuse === 'quarry') {
         atlasState.quarryPolygons.push(poly);
+      }
+      if (poly.props.amenity === 'police') {
+        atlasState.policeLocation = {
+          x: Math.round((poly.minX + poly.maxX) / 2),
+          y: Math.round((poly.minY + poly.maxY) / 2)
+        };
       }
     }
   }
 
-  // Snap quarryCenter to the largest real OSM quarry polygon if present
   if (atlasState.quarryPolygons.length > 0) {
     let best = atlasState.quarryPolygons[0];
     let bestArea = 0;
@@ -215,7 +234,6 @@ export async function initAtlas(onReady, forceRefresh = false) {
       if (res.ok) {
         const gj = await res.json();
         if (gj.features?.length > 0) {
-          atlasBounds = { ...DEFAULT_BOUNDS, ...(gj.bounds || {}) };
           ingestFeatureCollection(gj);
           atlasState.loaded = true;
           atlasState.status = 'ready';
@@ -230,7 +248,6 @@ export async function initAtlas(onReady, forceRefresh = false) {
 
     const cached = await readCachedSector(SECTOR_KEY);
     if (cached && cached.geojson && cached.geojson.features?.length > 0) {
-      atlasBounds = { ...DEFAULT_BOUNDS, ...(cached.bounds || {}) };
       ingestFeatureCollection(cached.geojson);
       atlasState.loaded = true;
       atlasState.status = 'ready';
@@ -241,7 +258,6 @@ export async function initAtlas(onReady, forceRefresh = false) {
   }
 
   try {
-    atlasBounds = { ...DEFAULT_BOUNDS };
     const gj = await fetchWithMirrors(DEFAULT_BOUNDS);
     ingestFeatureCollection(gj);
     atlasState.loaded = true;
@@ -278,12 +294,13 @@ export function distToSegment(px, py, x1, y1, x2, y2) {
   return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
 }
 
+// Rasterize exact OSM polygons & polylines onto a 32x32 chunk without bounding-box bloat
 export function applyAtlasToChunk(
   chunk,
   baseX,
   baseY,
   CHUNK_SIZE,
-  stampCompoundBuilding,
+  stampPolygonBuilding,
   isInsideQuarryHub
 ) {
   if (!atlasState.loaded) return false;
@@ -295,6 +312,7 @@ export function applyAtlasToChunk(
     (f) => f.maxX >= baseX - 8 && f.minX <= maxX + 8 && f.maxY >= baseY - 8 && f.minY <= maxY + 8
   );
 
+  // Pass 1: Waterways, Quarry Basin & Street Network (streets always carve cleanly through terrain)
   for (let ly = 0; ly < CHUNK_SIZE; ly++) {
     const wy = baseY + ly + 0.5;
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
@@ -342,35 +360,35 @@ export function applyAtlasToChunk(
             if (d < minD) minD = d;
           }
 
-          if (ww && minD <= 2.8) {
+          if (ww && minD <= 2.6) {
             tile = 4;
           } else if (hw) {
             if (hw === 'motorway' || hw === 'trunk') {
-              if (minD <= 0.6) {
+              if (minD <= 0.55) {
                 tile = 2;
                 roadKind = 'median';
-              } else if (minD <= 3.6) {
+              } else if (minD <= 3.5) {
                 tile = 3;
                 roadKind = 'freeway';
               }
             } else if (hw === 'primary' || hw === 'secondary') {
-              if (minD <= 2.6) {
+              if (minD <= 2.4) {
                 tile = 3;
                 roadKind = 'highway';
-              } else if (minD <= 3.6 && tile === 0) {
+              } else if (minD <= 3.3 && tile === 0) {
                 tile = 1;
                 roadKind = 'sidewalk';
               }
             } else if (hw === 'residential' || hw === 'tertiary' || hw === 'unclassified') {
-              if (minD <= 1.8) {
+              if (minD <= 1.7) {
                 tile = 3;
                 roadKind = 'street';
-              } else if (minD <= 2.7 && tile === 0) {
+              } else if (minD <= 2.5 && tile === 0) {
                 tile = 1;
                 roadKind = 'sidewalk';
               }
             } else if (hw === 'track' || hw === 'service' || hw === 'path') {
-              if (minD <= 1.3 && tile === 0) {
+              if (minD <= 1.2 && tile === 0) {
                 tile = 5;
                 roadKind = 'dirt';
               }
@@ -384,40 +402,42 @@ export function applyAtlasToChunk(
     }
   }
 
-  let bIdx = 0;
+  // Pass 2: Rasterize TRUE OSM Building Polygons (even across chunk edges, never overlapping roads)
   for (const f of nearby) {
     if (f.kind !== 'poly' || !f.props.building) continue;
+
     const cx = (f.minX + f.maxX) / 2;
     const cy = (f.minY + f.maxY) / 2;
-    if (cx < baseX || cx >= maxX || cy < baseY || cy >= maxY) continue;
-
-    // Never stamp OSM buildings inside the Quarry Safe Hub
     if (isInsideQuarryHub && isInsideQuarryHub(cx, cy)) continue;
 
-    const x1 = Math.max(12, Math.floor(f.minX));
-    const y1 = Math.max(12, Math.floor(f.minY));
-    const x2 = Math.min(ATLAS_MAP_SIZE - 13, Math.max(x1 + 5, Math.ceil(f.maxX)));
-    const y2 = Math.min(ATLAS_MAP_SIZE - 13, Math.max(y1 + 5, Math.ceil(f.maxY)));
+    const bx1 = Math.max(12, Math.floor(f.minX));
+    const by1 = Math.max(12, Math.floor(f.minY));
+    const bx2 = Math.min(ATLAS_MAP_SIZE - 13, Math.ceil(f.maxX));
+    const by2 = Math.min(ATLAS_MAP_SIZE - 13, Math.ceil(f.maxY));
 
-    // Skip if footprint overlaps an existing road or Quarry Safe Hub boundary
-    let blockedByRoadOrQuarry = false;
-    for (let yy = y1; yy <= y2 && !blockedByRoadOrQuarry; yy++) {
-      for (let xx = x1; xx <= x2; xx++) {
-        if (isInsideQuarryHub && isInsideQuarryHub(xx, yy)) {
-          blockedByRoadOrQuarry = true;
-          break;
+    // Collect only tiles whose centers actually lie inside the real OSM polygon!
+    const cellSet = new Set();
+    for (let y = by1; y <= by2; y++) {
+      for (let x = bx1; x <= bx2; x++) {
+        if (isInsideQuarryHub && isInsideQuarryHub(x + 0.5, y + 0.5)) continue;
+        if (pointInPolygon(x + 0.5, y + 0.5, f.pts)) {
+          cellSet.add(`${x},${y}`);
         }
-        const lx = xx - baseX;
-        const ly = yy - baseY;
-        if (lx >= 0 && lx < CHUNK_SIZE && ly >= 0 && ly < CHUNK_SIZE) {
-          if (chunk.tiles[ly * CHUNK_SIZE + lx] === 3) {
-            blockedByRoadOrQuarry = true;
-            break;
+      }
+    }
+
+    // Ensure tiny sheds/garages still get at least a 3x3 walkable interior footprint
+    if (cellSet.size < 9) {
+      const sx = Math.floor(cx) - 1;
+      const sy = Math.floor(cy) - 1;
+      for (let y = sy; y <= sy + 2; y++) {
+        for (let x = sx; x <= sx + 2; x++) {
+          if (!isInsideQuarryHub || !isInsideQuarryHub(x + 0.5, y + 0.5)) {
+            cellSet.add(`${x},${y}`);
           }
         }
       }
     }
-    if (blockedByRoadOrQuarry) continue;
 
     const bTag = f.props.building;
     const isCommercial =
@@ -432,44 +452,15 @@ export function applyAtlasToChunk(
         ? 'Rockmart Storefront'
         : 'Local Residence');
 
-    // Place door on whichever edge faces an adjacent street/sidewalk, defaulting to South (y2)
-    let doorX = Math.floor((x1 + x2) / 2);
-    let doorY = y2;
-    let dir = { dx: 0, dy: 1 };
+    const seed = ((Math.floor(cx) * 31 + Math.floor(cy) * 17) % 100) / 100;
 
-    const checkWalkableOutside = (tx, ty) => {
-      const lx = tx - baseX;
-      const ly = ty - baseY;
-      if (lx < 0 || lx >= CHUNK_SIZE || ly < 0 || ly >= CHUNK_SIZE) return true;
-      const t = chunk.tiles[ly * CHUNK_SIZE + lx];
-      return t === 0 || t === 1 || t === 3 || t === 5;
-    };
-
-    if (!checkWalkableOutside(doorX, y2 + 1)) {
-      if (checkWalkableOutside(doorX, y1 - 1)) {
-        doorY = y1;
-        dir = { dx: 0, dy: -1 };
-      } else if (checkWalkableOutside(x2 + 1, Math.floor((y1 + y2) / 2))) {
-        doorX = x2;
-        doorY = Math.floor((y1 + y2) / 2);
-        dir = { dx: 1, dy: 0 };
-      } else if (checkWalkableOutside(x1 - 1, Math.floor((y1 + y2) / 2))) {
-        doorX = x1;
-        doorY = Math.floor((y1 + y2) / 2);
-        dir = { dx: -1, dy: 0 };
-      }
-    }
-
-    const seed = ((x1 * 31 + y1 * 17) % 100) / 100;
-
-    stampCompoundBuilding(chunk, {
-      id: `osm-b-${chunk.cx}-${chunk.cy}-${bIdx++}`,
+    stampPolygonBuilding(chunk, {
+      id: `osm-b-${f.id || `${Math.floor(cx)}-${Math.floor(cy)}`}`,
       name: bName,
       category: isCommercial ? 'commercial' : 'house',
-      rects: [{ x1, y1, x2, y2 }],
-      doorSpecs: [
-        { x: doorX, y: doorY, state: isCommercial ? 'locked' : 'unlocked', dir }
-      ],
+      cellSet,
+      polygonPts: f.pts,
+      doorState: isCommercial ? 'locked' : 'unlocked',
       seed
     });
   }
