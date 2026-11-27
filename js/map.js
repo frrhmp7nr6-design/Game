@@ -47,15 +47,59 @@ export const convoyGarage = {
   x: 501.5,
   y: 501.5,
   points: 0,
-  targetPoints: 12,
+  targetPoints: 20,
+  specialists: 0,
   complete: false
 };
 
-// Quarry Campfire Healing Beacon
 export const quarryCampfire = {
   x: 512.5,
   y: 512.5
 };
+
+// Dynamic Neighbor Rescue Flare State
+const SPECIALIST_ROLES = [
+  'Mechanic Dale',
+  'Nurse Clara',
+  'Gunsmith Marcus',
+  'Quartermaster Mae',
+  'Engineer Brooks',
+  'Scout Elena'
+];
+
+export const rescueEvent = {
+  active: false,
+  id: 0,
+  name: 'Mechanic Dale',
+  x: 540.5,
+  y: 430.5,
+  following: false
+};
+
+export const rescuedSpecialists = [];
+
+export function spawnNextRescueFlare(player) {
+  const id = rescueEvent.id + 1;
+  const angle = Math.random() * Math.PI * 2;
+  // Spawn 85 to 165 tiles away from center (Ring 1 / early Ring 2)
+  const dist = 85 + Math.random() * 80;
+  let fx = Math.round(CENTER + Math.cos(angle) * dist) + 0.5;
+  let fy = Math.round(CENTER + Math.sin(angle) * dist) + 0.5;
+
+  // Nudge off any wall tile if needed
+  for (let tries = 0; tries < 12; tries++) {
+    if (getTileAt(Math.floor(fx), Math.floor(fy)) !== 2) break;
+    fx += 1;
+  }
+
+  rescueEvent.active = true;
+  rescueEvent.id = id;
+  rescueEvent.name = SPECIALIST_ROLES[(id - 1) % SPECIALIST_ROLES.length];
+  rescueEvent.x = fx;
+  rescueEvent.y = fy;
+  rescueEvent.following = false;
+  return rescueEvent;
+}
 
 export function getDoorAt(tx, ty, activeChunks) {
   for (const c of activeChunks) {
