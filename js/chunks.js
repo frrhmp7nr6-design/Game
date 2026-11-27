@@ -16,11 +16,11 @@ export const droppedLoot = [];
 
 // Tile IDs:
 // 0 = Pine Grass / Rural Field
-// 1 = Concrete / Sidewalk / Interior Floor
-// 2 = Wall / Fence
-// 3 = Asphalt Road
+// 1 = Concrete Sidewalk / Quarry Floor / Interior Floor
+// 2 = Wall / Median Barrier / Fence
+// 3 = Asphalt Roadway (Freeway, Highway, Boulevard, Avenue, Street, Rural Rd)
 // 4 = Euharlee Creek Water
-// 5 = Rural Dirt / Gravel Lane
+// 5 = Unpaved Dirt / Gravel Road
 
 function hash2d(x, y) {
   let n = Math.imul(x, 374761393) + Math.imul(y, 668265263);
@@ -57,56 +57,111 @@ export function isCreekTile(wx, wy) {
   return Math.abs(wx - creekCenter) <= 3.2;
 }
 
-// Community Town Grid + Rural Highways
-export function getRoadType(wx, wy) {
-  // 1. US-278 East-West 4-lane highway across north side (y ~ 252)
+// Detailed Roadway Classification:
+// returns { tile: 0|1|2|3|5, class: 'none'|'freeway'|'ramp'|'highway'|'boulevard'|'avenue'|'street'|'rural'|'dirt'|'sidewalk'|'median' }
+export function classifyRoad(wx, wy) {
+  // 1. INTERSTATE FREEWAY (I-20 Corridor across far north y ~ 115, 7 tiles wide with center median, zero cross intersections)
+  const i20Y = 115 + Math.sin(wx * 0.005) * 8;
+  const dyI20 = wy - i20Y;
+  if (Math.abs(dyI20) <= 3.6) {
+    if (Math.abs(dyI20) <= 0.55) return { tile: 2, kind: 'median' }; // Concrete center divider
+    return { tile: 3, kind: 'freeway' };
+  }
+
+  // Grade-separated Interchange Ramps connecting I-20 (y~115) down to Piedmont Blvd (x~576) & US-278 (y~252)
+  if (wy >= 115 && wy <= 252) {
+    const t = (wy - 115) / 137;
+    const westRampX = 530 + t * 44;
+    const eastRampX = 622 - t * 44;
+    if (Math.abs(wx - westRampX) <= 1.4 || Math.abs(wx - eastRampX) <= 1.4) {
+      return { tile: 3, kind: 'ramp' };
+    }
+  }
+
+  // 2. HIGHWAY (US-278 East-West 4-lane arterial y ~ 252)
   const us278Y = 252 + Math.sin(wx * 0.007) * 10;
-  if (Math.abs(wy - us278Y) <= 2.6) return 3;
+  if (Math.abs(wy - us278Y) <= 2.3) {
+    return { tile: 3, kind: 'highway' };
+  }
 
-  // 2. S Marble St / N Piedmont Ave north-south spine (x ~ 520..568)
+  // 3. BOULEVARD (Piedmont Blvd: wide urban thoroughfare x = 576 with planted green median)
+  if (wy >= 250 && wy <= 542) {
+    const dxBlvd = wx - 576;
+    if (Math.abs(dxBlvd) <= 2.6) {
+      if (Math.abs(dxBlvd) <= 0.5) return { tile: 0, kind: 'median' }; // Landscaped green median strip
+      return { tile: 3, kind: 'boulevard' };
+    }
+  }
+
+  // 4. S MARBLE ST (Main connector from Rockmart Quarry north into Downtown)
   const marbleX = 520 + (wy < 555 ? (555 - wy) * 0.14 : 0);
-  if (wy >= 245 && wy <= 625 && Math.abs(wx - marbleX) <= 2.0) return 3;
+  if (wy >= 252 && wy <= 625 && Math.abs(wx - marbleX) <= 1.8) {
+    return { tile: 3, kind: 'avenue' };
+  }
 
-  // 3. Rockmart Downtown & Neighborhood Street Grid (x: 360..630, y: 290..540)
-  if (wx >= 360 && wx <= 630 && wy >= 290 && wy <= 540) {
-    // East-West avenues every 48 tiles: y = 310, 358, 406, 454, 502
-    for (const sy of [310, 358, 406, 454, 502]) {
-      if (Math.abs(wy - sy) <= 1.6) return 3;
-      // Sidewalk border 1 tile outside road edge
-      if (Math.abs(wy - sy) <= 2.6) return 1;
+  // 5. URBAN AVENUES (East-West grid arteries) & STREETS (North-South local access)
+  // Asphalt pass runs BEFORE sidewalks so intersections are 100% clean asphalt!
+  const inDowntown = wx >= 360 && wx <= 630 && wy >= 290 && wy <= 540;
+  const inSuburb = wx >= 220 && wx <= 360 && wy >= 340 && wy <= 500;
+
+  if (inDowntown) {
+    for (const ay of [310, 358, 406, 454, 502]) {
+      if (Math.abs(wy - ay) <= 1.7) return { tile: 3, kind: 'avenue' };
     }
-    // North-South streets every 64 tiles: x = 384, 448, 512, 576, 624
-    for (const sx of [384, 448, 512, 576, 624]) {
-      if (Math.abs(wx - sx) <= 1.6) return 3;
-      if (Math.abs(wx - sx) <= 2.6) return 1;
+    for (const sx of [384, 448, 512, 624]) {
+      if (Math.abs(wx - sx) <= 1.4) return { tile: 3, kind: 'street' };
     }
   }
 
-  // 4. Oakridge West Subdivision Loop (x: 220..360, y: 340..500)
-  if (wx >= 220 && wx <= 360 && wy >= 340 && wy <= 500) {
-    if (Math.abs(wy - 360) <= 1.5 || Math.abs(wy - 480) <= 1.5) return 3;
-    if (Math.abs(wx - 240) <= 1.5 || Math.abs(wx - 320) <= 1.5) return 3;
-    if (Math.abs(wy - 360) <= 2.4 || Math.abs(wy - 480) <= 2.4) return 1;
-    if (Math.abs(wx - 240) <= 2.4 || Math.abs(wx - 320) <= 2.4) return 1;
+  if (inSuburb) {
+    if (Math.abs(wy - 360) <= 1.4 || Math.abs(wy - 480) <= 1.4) return { tile: 3, kind: 'street' };
+    if (Math.abs(wx - 240) <= 1.4 || Math.abs(wx - 320) <= 1.4) return { tile: 3, kind: 'street' };
   }
 
-  // 5. Winding Morgan Valley Rd (Rural Southwest)
+  // 6. RURAL ROADS (Narrow 2-lane winding countryside asphalt: Morgan Valley Rd & Hutchins Mtn Rd)
   if (wx < 515 && wy > 460) {
     const morganY = 485 + (515 - wx) * 0.42 + Math.sin(wx * 0.022) * 18;
-    if (Math.abs(wy - morganY) <= 1.8) return 3;
+    if (Math.abs(wy - morganY) <= 1.4) return { tile: 3, kind: 'rural' };
   }
-
-  // 6. Winding Hutchins Mountain Rd (Rural South-Southeast)
   if (wy > 605) {
     const hutchinsX = 520 + (wy - 605) * 0.28 + Math.sin(wy * 0.02) * 20;
-    if (Math.abs(wx - hutchinsX) <= 1.8) return 3;
+    if (Math.abs(wx - hutchinsX) <= 1.4) return { tile: 3, kind: 'rural' };
   }
 
-  return 0;
+  // 7. DIRT ROADS (Unpaved rural logging & farm tracks in outer countryside)
+  if (wy > 650 && wx < 500) {
+    const dirtY = 740 + Math.sin(wx * 0.03) * 28;
+    if (Math.abs(wy - dirtY) <= 1.1) return { tile: 5, kind: 'dirt' };
+  }
+  if (wx > 690 && wy > 320) {
+    const dirtX = 780 + Math.cos(wy * 0.025) * 32;
+    if (Math.abs(wx - dirtX) <= 1.1) return { tile: 5, kind: 'dirt' };
+  }
+
+  // 8. SIDEWALKS (Only placed adjacent to urban streets/avenues where no asphalt exists)
+  if (inDowntown) {
+    for (const ay of [310, 358, 406, 454, 502]) {
+      if (Math.abs(wy - ay) <= 2.6) return { tile: 1, kind: 'sidewalk' };
+    }
+    for (const sx of [384, 448, 512, 624]) {
+      if (Math.abs(wx - sx) <= 2.3) return { tile: 1, kind: 'sidewalk' };
+    }
+    if (Math.abs(wx - 576) <= 3.5) return { tile: 1, kind: 'sidewalk' };
+  }
+  if (inSuburb) {
+    if (Math.abs(wy - 360) <= 2.3 || Math.abs(wy - 480) <= 2.3) return { tile: 1, kind: 'sidewalk' };
+    if (Math.abs(wx - 240) <= 2.3 || Math.abs(wx - 320) <= 2.3) return { tile: 1, kind: 'sidewalk' };
+  }
+
+  return { tile: 0, kind: 'none' };
+}
+
+export function getRoadType(wx, wy) {
+  return classifyRoad(wx, wy).tile;
 }
 
 export function isRoadTile(wx, wy) {
-  return getRoadType(wx, wy) === 3;
+  return classifyRoad(wx, wy).tile === 3;
 }
 
 export function getZoneInfo(wx, wy) {
@@ -133,14 +188,13 @@ export function getZoneInfo(wx, wy) {
   return { ring: 3, name: 'Outer Pine Quarantine', color: '#ef4444' };
 }
 
-// Architectural Palettes (Wall left/right/top + Roof left/right/ridge + Awning)
 const HOUSE_PALETTES = [
-  { name: 'Clapboard White', wallL: '#cbd5e1', wallR: '#94a3b8', roofL: '#334155', roofR: '#1e293b', trim: '#f8fafc' },
-  { name: 'Georgia Red Brick', wallL: '#991b1b', wallR: '#7f1d1d', roofL: '#27272a', roofR: '#18181b', trim: '#fef3c7' },
-  { name: 'Sage Craftsman', wallL: '#4d7c0f', wallR: '#3f6212', roofL: '#451a03', roofR: '#290f02', trim: '#ecfccb' },
+  { name: 'Clapboard White', wallL: '#cbd5e1', wallR: '#94a3b8', roofL: '#475569', roofR: '#334155', trim: '#f8fafc' },
+  { name: 'Georgia Red Brick', wallL: '#991b1b', wallR: '#7f1d1d', roofL: '#3f3f46', roofR: '#27272a', trim: '#fef3c7' },
+  { name: 'Sage Craftsman', wallL: '#4d7c0f', wallR: '#3f6212', roofL: '#5c2d16', roofR: '#422006', trim: '#ecfccb' },
   { name: 'Colonial Blue', wallL: '#1d4ed8', wallR: '#1e40af', roofL: '#334155', roofR: '#1e293b', trim: '#dbeafe' },
-  { name: 'Warm Sand Ranch', wallL: '#b45309', wallR: '#92400e', roofL: '#3f3f46', roofR: '#27272a', trim: '#fef3c7' },
-  { name: 'Weathered Cabin', wallL: '#78350f', wallR: '#5c280b', roofL: '#14532d', roofR: '#052e16', trim: '#fed7aa' }
+  { name: 'Warm Sand Ranch', wallL: '#b45309', wallR: '#92400e', roofL: '#44403c', roofR: '#292524', trim: '#fef3c7' },
+  { name: 'Weathered Cabin', wallL: '#78350f', wallR: '#5c280b', roofL: '#166534', roofR: '#14532d', trim: '#fed7aa' }
 ];
 
 const COMMERCIAL_PALETTES = [
@@ -151,20 +205,18 @@ const COMMERCIAL_PALETTES = [
   { name: 'Midtown Stone', wallL: '#57534e', wallR: '#44403c', roofL: '#292524', roofR: '#1c1917', awning: '#7c3aed' }
 ];
 
-// Compound Multi-Rectangle Building Stamper (supports L-shapes, T-shapes, porches, windows & interior props)
 function stampCompoundBuilding(chunk, config) {
   const {
     id,
     name,
-    category, // 'house' | 'commercial' | 'rural'
-    rects, // array of { x1, y1, x2, y2 }
+    category,
+    rects,
     doorSpecs,
     seed,
     defaultRevealed = false,
     porchRect = null
   } = config;
 
-  // Build full floor footprint cell set
   const cellSet = new Set();
   let minX = Infinity;
   let minY = Infinity;
@@ -190,15 +242,12 @@ function stampCompoundBuilding(chunk, config) {
 
   const roofStyle =
     category === 'commercial'
-      ? seed > 0.35
-        ? 'parapet'
-        : 'gable'
+      ? 'parapet'
       : seed > 0.45
       ? 'gable'
       : 'hip';
 
   const wallTiles = [];
-  const interiorTiles = [];
 
   for (const key of cellSet) {
     const [wx, wy] = key.split(',').map(Number);
@@ -230,7 +279,6 @@ function stampCompoundBuilding(chunk, config) {
           maxHp
         });
 
-        // Stamp walkway connecting front door out toward street
         const stepDir = doorSpec.dir || { dx: 0, dy: 1 };
         for (let step = 1; step <= 4; step++) {
           const sx = lx + stepDir.dx * step;
@@ -244,7 +292,6 @@ function stampCompoundBuilding(chunk, config) {
       }
     } else if (isPerimeter) {
       if (inChunk) chunk.tiles[ly * CHUNK_SIZE + lx] = 2;
-      // Add windows on camera-facing South (!hasS) or East (!hasE) walls
       const isCorner = (!hasN && !hasW) || (!hasN && !hasE) || (!hasS && !hasW) || (!hasS && !hasE);
       const hasWindow =
         !isCorner &&
@@ -260,11 +307,9 @@ function stampCompoundBuilding(chunk, config) {
       });
     } else {
       if (inChunk) chunk.tiles[ly * CHUNK_SIZE + lx] = 1;
-      interiorTiles.push({ x: wx, y: wy });
     }
   }
 
-  // Stamp porch deck if present
   if (porchRect) {
     for (let py = porchRect.y1; py <= porchRect.y2; py++) {
       for (let px = porchRect.x1; px <= porchRect.x2; px++) {
@@ -279,24 +324,22 @@ function stampCompoundBuilding(chunk, config) {
     }
   }
 
-  // Generate interior furniture props (counters, beds, tables, shelves)
+  // Wall-aligned 3D Interior Furniture (counters along back wall, beds in corners, aisles in stores)
   const props = [];
-  if (interiorTiles.length > 0) {
-    const p1 = interiorTiles[Math.floor(interiorTiles.length * 0.25)];
-    const p2 = interiorTiles[Math.floor(interiorTiles.length * 0.72)];
-    if (p1) {
-      props.push({
-        x: p1.x + 0.5,
-        y: p1.y + 0.5,
-        kind: category === 'commercial' ? 'counter' : 'bed'
-      });
-    }
-    if (p2 && (p2.x !== p1.x || p2.y !== p1.y)) {
-      props.push({
-        x: p2.x + 0.5,
-        y: p2.y + 0.5,
-        kind: category === 'commercial' ? 'shelf' : 'table'
-      });
+  const mainR = rects[0];
+  if (mainR && mainR.x2 - mainR.x1 >= 6 && mainR.y2 - mainR.y1 >= 6) {
+    if (category === 'commercial') {
+      // Back checkout counter along north wall + two parallel retail shelving aisles
+      props.push({ x: mainR.x1 + 2, y: mainR.y1 + 1, w: 3, d: 1, kind: 'counter' });
+      props.push({ x: mainR.x1 + 2, y: mainR.y1 + 4, w: 3, d: 1, kind: 'shelf' });
+      if (mainR.x2 - mainR.x1 >= 9) {
+        props.push({ x: mainR.x2 - 4, y: mainR.y1 + 4, w: 3, d: 1, kind: 'shelf' });
+      }
+    } else {
+      // Bedroom bed tucked in NW corner + kitchen counter along NE wall + dining table
+      props.push({ x: mainR.x1 + 1, y: mainR.y1 + 1, w: 2, d: 2, kind: 'bed' });
+      props.push({ x: mainR.x2 - 3, y: mainR.y1 + 1, w: 3, d: 1, kind: 'counter' });
+      props.push({ x: mainR.x1 + 2, y: mainR.y2 - 3, w: 2, d: 1, kind: 'table' });
     }
   }
 
@@ -304,6 +347,7 @@ function stampCompoundBuilding(chunk, config) {
     id,
     name,
     category,
+    rects,
     x1: minX,
     y1: minY,
     x2: maxX,
@@ -322,9 +366,7 @@ function buildHouseBlueprint(chunk, id, name, bx, by, bw, bh, doorState, seed, i
   const shapeRoll = Math.floor(seed * 100) % 4;
   const rects = [{ x1: bx, y1: by, x2: bx + bw, y2: by + bh }];
 
-  // Compound wings for L-shaped garage, T-shaped addition, or extended den
   if (shapeRoll === 1 && bw >= 7) {
-    // L-wing attached garage on east side
     rects.push({
       x1: bx + bw - 3,
       y1: by + bh,
@@ -332,7 +374,6 @@ function buildHouseBlueprint(chunk, id, name, bx, by, bw, bh, doorState, seed, i
       y2: by + bh + 3
     });
   } else if (shapeRoll === 2 && bh >= 7) {
-    // Side wing on west side
     rects.push({
       x1: bx - 3,
       y1: by + 1,
@@ -340,7 +381,6 @@ function buildHouseBlueprint(chunk, id, name, bx, by, bw, bh, doorState, seed, i
       y2: by + bh - 2
     });
   } else if (shapeRoll === 3 && bw >= 8) {
-    // Back sunroom extension
     rects.push({
       x1: bx + 2,
       y1: by - 2,
@@ -379,7 +419,6 @@ function buildCommercialBlueprint(chunk, id, name, bx, by, bw, bh, doorState, se
   const rects = [{ x1: bx, y1: by, x2: bx + bw, y2: by + bh }];
 
   if (shapeRoll === 1 && bw >= 9) {
-    // L-shaped corner storefront / motel wing
     rects.push({
       x1: bx + bw - 4,
       y1: by + bh,
@@ -387,7 +426,6 @@ function buildCommercialBlueprint(chunk, id, name, bx, by, bw, bh, doorState, se
       y2: by + bh + 4
     });
   } else if (shapeRoll === 2 && bw >= 10) {
-    // Back storage / loading bay extension
     rects.push({
       x1: bx + 1,
       y1: by - 3,
@@ -418,10 +456,12 @@ function buildCommercialBlueprint(chunk, id, name, bx, by, bw, bh, doorState, se
 
 function generateChunk(cx, cy) {
   const tiles = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE);
+  const roadKinds = new Array(CHUNK_SIZE * CHUNK_SIZE).fill('none');
   const chunk = {
     cx,
     cy,
     tiles,
+    roadKinds,
     buildings: [],
     doors: [],
     loot: [],
@@ -435,34 +475,36 @@ function generateChunk(cx, cy) {
     const wy = baseY + ly;
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
       const wx = baseX + lx;
+      const idx = ly * CHUNK_SIZE + lx;
 
       if (wx < 10 || wy < 10 || wx >= MAP_SIZE - 10 || wy >= MAP_SIZE - 10) {
-        tiles[ly * CHUNK_SIZE + lx] = 2;
+        tiles[idx] = 2;
         continue;
       }
 
-      const roadTile = getRoadType(wx, wy);
-      if (roadTile !== 0) {
-        tiles[ly * CHUNK_SIZE + lx] = roadTile;
+      const roadInfo = classifyRoad(wx, wy);
+      if (roadInfo.kind !== 'none') {
+        tiles[idx] = roadInfo.tile;
+        roadKinds[idx] = roadInfo.kind;
         continue;
       }
 
       if (isQuarryPerimeter(wx, wy)) {
-        tiles[ly * CHUNK_SIZE + lx] = 2;
+        tiles[idx] = 2;
         continue;
       }
 
       if (isInsideQuarryHub(wx, wy)) {
-        tiles[ly * CHUNK_SIZE + lx] = 1;
+        tiles[idx] = 1;
         continue;
       }
 
       if (isCreekTile(wx, wy)) {
-        tiles[ly * CHUNK_SIZE + lx] = 4;
+        tiles[idx] = 4;
         continue;
       }
 
-      tiles[ly * CHUNK_SIZE + lx] = 0;
+      tiles[idx] = 0;
     }
   }
 
@@ -523,7 +565,7 @@ function generateChunk(cx, cy) {
     }
   }
 
-  // 2. Rockmart Police Precinct (aligned on Elm St & N Piedmont Ave block)
+  // 2. Rockmart Police Precinct
   if (cx === 17 && cy === 14) {
     stampCompoundBuilding(chunk, {
       id: 'rockmart-pd',
@@ -564,7 +606,7 @@ function generateChunk(cx, cy) {
     return chunk;
   }
 
-  // 3. Hometown Pizza (aligned on Elm St & Marble St block)
+  // 3. Hometown Pizza
   if (cx === 15 && cy === 14) {
     stampCompoundBuilding(chunk, {
       id: 'hometown-pizza',
@@ -591,7 +633,7 @@ function generateChunk(cx, cy) {
     return chunk;
   }
 
-  // 4. Low True Hardware (on US-278 corridor)
+  // 4. Low True Hardware
   if (cx === 14 && cy === 8) {
     stampCompoundBuilding(chunk, {
       id: 'low-true-hw',
@@ -620,7 +662,7 @@ function generateChunk(cx, cy) {
     return chunk;
   }
 
-  // 5. Walmart Supercenter (NE US-278 commercial anchor)
+  // 5. Walmart Supercenter
   if (cx === 25 && cy === 7) {
     stampCompoundBuilding(chunk, {
       id: 'walmart-sc',
@@ -652,14 +694,10 @@ function generateChunk(cx, cy) {
   const isSuburbBlock = midX >= 210 && midX <= 365 && midY >= 330 && midY <= 510;
   const isRuralArea = !isDowntownBlock && !isSuburbBlock;
 
-  // Community Clustering:
-  // - Downtown & Suburbs: Dense street-aligned blocks (2 paired houses or commercial storefronts per block)
-  // - Rural Countryside: Sparse isolated farmhouses/cabins (~22% of chunks) with dirt driveways
   const seed = hash2d(cx, cy);
   const spawnThreshold = isDowntownBlock ? 0.15 : isSuburbBlock ? 0.2 : 0.78;
 
   if (seed > spawnThreshold) {
-    // Find nearest east-west street inside chunk to snap building frontages neatly along the sidewalk!
     let targetRoadY = null;
     for (let y = baseY + 4; y <= baseY + 28; y++) {
       if (getRoadType(baseX + 16, y) === 3) {
@@ -670,7 +708,6 @@ function generateChunk(cx, cy) {
 
     const lots = [];
     if (targetRoadY !== null && !isRuralArea) {
-      // Snap 1 or 2 buildings right onto the north side of the street sidewalk!
       const by = targetRoadY - 11;
       if (by >= baseY + 2) {
         lots.push({ bx: baseX + 4, by, bw: 9, bh: 8, s: hash2d(cx * 5, cy * 3) });
@@ -679,13 +716,11 @@ function generateChunk(cx, cy) {
         }
       }
     } else if (isRuralArea) {
-      // Isolated Rural Farmhouse, Barn, or Hunting Cabin with a dirt lane
       const bx = baseX + 8 + Math.floor(hash2d(cx + 3, cy) * 8);
       const by = baseY + 8 + Math.floor(hash2d(cx, cy + 5) * 8);
-      // Verify no creek/road/quarry overlap
       let ok = true;
-      for (let yy = by - 2; yy <= by + 12; yy += 2) {
-        for (let xx = bx - 2; xx <= bx + 12; xx += 2) {
+      for (let yy = by - 4; yy <= by + 13; yy += 2) {
+        for (let xx = bx - 4; xx <= bx + 13; xx += 2) {
           if (isCreekTile(xx, yy) || isInsideQuarryHub(xx, yy) || getRoadType(xx, yy) !== 0) {
             ok = false;
           }
@@ -697,7 +732,6 @@ function generateChunk(cx, cy) {
     }
 
     lots.forEach((lot, idx) => {
-      // Skip if lot overlaps a north-south street
       for (let xx = lot.bx - 1; xx <= lot.bx + lot.bw + 1; xx++) {
         if (getRoadType(xx, lot.by + 2) === 3) return;
       }
@@ -750,7 +784,6 @@ function generateChunk(cx, cy) {
         ? buildCommercialBlueprint(chunk, bId, bName, lot.bx, lot.by, lot.bw, lot.bh, doorState, lot.s)
         : buildHouseBlueprint(chunk, bId, bName, lot.bx, lot.by, lot.bw, lot.bh, doorState, lot.s, lot.rural);
 
-      // Primary building loot
       if (idx === 0) {
         const crateRoll = hash2d(cx + 51, cy + 59);
         const supplyItem =
@@ -785,7 +818,6 @@ function generateChunk(cx, cy) {
     });
   }
 
-  // Outdoor roaming zombies (denser in town streets, sparser in rural woods)
   const outdoorCount = isRuralArea ? 1 : zone.ring === 1 ? 2 : 3;
   for (let i = 0; i < outdoorCount; i++) {
     const zx = baseX + 3 + Math.floor(hash2d(cx + i * 13, cy + 5) * 26) + 0.5;
@@ -861,6 +893,17 @@ export function getTileAt(tx, ty) {
   const lx = tx - cx * CHUNK_SIZE;
   const ly = ty - cy * CHUNK_SIZE;
   return chunk.tiles[ly * CHUNK_SIZE + lx];
+}
+
+export function getRoadKindAt(tx, ty) {
+  if (tx < 0 || ty < 0 || tx >= MAP_SIZE || ty >= MAP_SIZE) return 'none';
+  const cx = Math.floor(tx / CHUNK_SIZE);
+  const cy = Math.floor(ty / CHUNK_SIZE);
+  const chunk = getChunk(cx, cy);
+  if (!chunk) return 'none';
+  const lx = tx - cx * CHUNK_SIZE;
+  const ly = ty - cy * CHUNK_SIZE;
+  return chunk.roadKinds[ly * CHUNK_SIZE + lx];
 }
 
 export function getActiveChunks(wx, wy, radiusChunks = 1) {
