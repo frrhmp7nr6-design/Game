@@ -1,13 +1,11 @@
-import { atlasState, applyAtlasToChunk } from './atlas.js';
-
 export const CHUNK_SIZE = 32;
-export const WORLD_CHUNKS = 32;
-export const MAP_SIZE = CHUNK_SIZE * WORLD_CHUNKS; // 1024
-export const CENTER = 512;
+export const WORLD_CHUNKS = 64; // 64 x 64 chunks = 2048 x 2048 tiles
+export const MAP_SIZE = CHUNK_SIZE * WORLD_CHUNKS; // 2048
+export const CENTER = 1024;
 
-// Proportional 46x38 Quarry Safe Hub aligned with Rockmart Slate Corp basin
-export const QUARRY_X = 540;
-export const QUARRY_Y = 745;
+// Proportional 46x38 Quarry Safe Hub in the south-central valley
+export const QUARRY_X = 1024;
+export const QUARRY_Y = 1460;
 export const QUARRY_RX = 46;
 export const QUARRY_RY = 38;
 
@@ -31,15 +29,12 @@ function hash2d(x, y) {
 }
 
 export function getQuarryCenter() {
-  return atlasState.loaded && atlasState.quarryCenter
-    ? atlasState.quarryCenter
-    : { x: QUARRY_X, y: QUARRY_Y };
+  return { x: QUARRY_X, y: QUARRY_Y };
 }
 
 export function isInsideQuarryHub(wx, wy) {
-  const qc = getQuarryCenter();
-  const dx = (wx - qc.x) / QUARRY_RX;
-  const dy = (wy - qc.y) / QUARRY_RY;
+  const dx = (wx - QUARRY_X) / QUARRY_RX;
+  const dy = (wy - QUARRY_Y) / QUARRY_RY;
   const angle = Math.atan2(dy, dx);
   const wobble =
     0.10 * Math.sin(angle * 3 + 0.6) +
@@ -49,6 +44,8 @@ export function isInsideQuarryHub(wx, wy) {
 
 function isQuarryPerimeter(wx, wy) {
   if (!isInsideQuarryHub(wx, wy)) return false;
+  // Leave a 5-tile north gate opening onto S Marble St (x ≈ 1024)
+  if (wy < QUARRY_Y && Math.abs(wx - QUARRY_X) <= 2.5) return false;
   return (
     !isInsideQuarryHub(wx + 1, wy) ||
     !isInsideQuarryHub(wx - 1, wy) ||
@@ -57,96 +54,151 @@ function isQuarryPerimeter(wx, wy) {
   );
 }
 
+export function getRiverCenterX(wy) {
+  return (
+    1340 +
+    Math.sin(wy * 0.009) * 58 +
+    Math.cos(wy * 0.024) * 22
+  );
+}
+
 export function isCreekTile(wx, wy) {
-  const creekCenter =
-    655 +
-    Math.sin(wy * 0.018) * 32 +
-    Math.cos(wy * 0.045) * 14;
-  return Math.abs(wx - creekCenter) <= 3.2;
+  const riverX = getRiverCenterX(wy);
+  return Math.abs(wx - riverX) <= 3.6;
 }
 
 export function classifyRoad(wx, wy) {
-  const i20Y = 115 + Math.sin(wx * 0.005) * 8;
+  // 1. Interstate-20 Divided Freeway (East-West across the north)
+  const i20Y = 230 + Math.sin(wx * 0.0025) * 14;
   const dyI20 = wy - i20Y;
-  if (Math.abs(dyI20) <= 3.6) {
-    if (Math.abs(dyI20) <= 0.55) return { tile: 2, kind: 'median' };
+  if (Math.abs(dyI20) <= 3.8) {
+    if (Math.abs(dyI20) <= 0.6) return { tile: 2, kind: 'median' };
     return { tile: 3, kind: 'freeway' };
   }
 
-  if (wy >= 115 && wy <= 252) {
-    const t = (wy - 115) / 137;
-    const westRampX = 530 + t * 44;
-    const eastRampX = 622 - t * 44;
-    if (Math.abs(wx - westRampX) <= 1.4 || Math.abs(wx - eastRampX) <= 1.4) {
+  // Diamond Interchange Ramps connecting I-20 down to US-278
+  if (wy >= 230 && wy <= 515) {
+    const t = (wy - 230) / 285;
+    const westRampX = 1045 + t * 95;
+    const eastRampX = 1235 - t * 95;
+    if (Math.abs(wx - westRampX) <= 1.5 || Math.abs(wx - eastRampX) <= 1.5) {
       return { tile: 3, kind: 'ramp' };
     }
   }
 
-  const us278Y = 252 + Math.sin(wx * 0.007) * 10;
-  if (Math.abs(wy - us278Y) <= 2.3) {
+  // 2. US-278 Highway (Major East-West commercial corridor & river bridge)
+  const us278Y = 515 + Math.sin(wx * 0.0035) * 16;
+  if (Math.abs(wy - us278Y) <= 2.5) {
     return { tile: 3, kind: 'highway' };
   }
 
-  if (wy >= 250 && wy <= 542) {
-    const dxBlvd = wx - 576;
-    if (Math.abs(dxBlvd) <= 2.6) {
-      if (Math.abs(dxBlvd) <= 0.5) return { tile: 0, kind: 'median' };
+  // 3. Piedmont Blvd (Divided 4-lane spine from US-278 into Downtown)
+  if (wy >= 512 && wy <= 1060) {
+    const dxBlvd = wx - 1140;
+    if (Math.abs(dxBlvd) <= 2.7) {
+      if (Math.abs(dxBlvd) <= 0.55) return { tile: 0, kind: 'median' };
       return { tile: 3, kind: 'boulevard' };
     }
   }
 
-  const marbleX = 520 + (wy < 555 ? (555 - wy) * 0.14 : 0);
-  if (wy >= 252 && wy <= 760 && Math.abs(wx - marbleX) <= 1.8) {
+  // 4. S Marble St (Connects Quarry Safe Hub north into Downtown & US-278)
+  const marbleX = 1024 + (wy < 1100 ? (1100 - wy) * 0.12 : 0);
+  if (wy >= 515 && wy <= 1435 && Math.abs(wx - marbleX) <= 1.9) {
     return { tile: 3, kind: 'avenue' };
   }
 
-  const inDowntown = wx >= 360 && wx <= 630 && wy >= 290 && wy <= 540;
-  const inSuburb = wx >= 220 && wx <= 360 && wy >= 340 && wy <= 500;
+  // 5. Westfield Collector (North-South spine serving Oakridge Suburbs)
+  if (wy >= 515 && wy <= 1120 && Math.abs(wx - 540) <= 1.8) {
+    return { tile: 3, kind: 'avenue' };
+  }
 
+  // 6. Downtown Rockmart Grid (x: 760..1260, y: 580..1060)
+  const inDowntown = wx >= 760 && wx <= 1260 && wy >= 580 && wy <= 1060;
   if (inDowntown) {
-    for (const ay of [310, 358, 406, 454, 502]) {
-      if (Math.abs(wy - ay) <= 1.7) return { tile: 3, kind: 'avenue' };
+    for (const ay of [620, 710, 800, 890, 980, 1050]) {
+      if (Math.abs(wy - ay) <= 1.8) return { tile: 3, kind: 'avenue' };
     }
-    for (const sx of [384, 448, 512, 624]) {
+    for (const sx of [780, 880, 980, 1080, 1240]) {
+      if (Math.abs(wx - sx) <= 1.5) return { tile: 3, kind: 'street' };
+    }
+  }
+
+  // 7. Oakridge Suburbs (West: x: 340..720, y: 620..1060)
+  const inWestSuburb = wx >= 340 && wx <= 720 && wy >= 620 && wy <= 1060;
+  if (inWestSuburb) {
+    for (const ay of [660, 760, 860, 960, 1040]) {
+      if (Math.abs(wy - ay) <= 1.5) return { tile: 3, kind: 'street' };
+    }
+    for (const sx of [380, 460, 620, 700]) {
       if (Math.abs(wx - sx) <= 1.4) return { tile: 3, kind: 'street' };
     }
   }
 
-  if (inSuburb) {
-    if (Math.abs(wy - 360) <= 1.4 || Math.abs(wy - 480) <= 1.4) return { tile: 3, kind: 'street' };
-    if (Math.abs(wx - 240) <= 1.4 || Math.abs(wx - 320) <= 1.4) return { tile: 3, kind: 'street' };
-  }
-
-  if (wx < 515 && wy > 460) {
-    const morganY = 485 + (515 - wx) * 0.42 + Math.sin(wx * 0.022) * 18;
-    if (Math.abs(wy - morganY) <= 1.4) return { tile: 3, kind: 'rural' };
-  }
-  if (wy > 730) {
-    const hutchinsX = 540 + (wy - 730) * 0.28 + Math.sin(wy * 0.02) * 20;
-    if (Math.abs(wx - hutchinsX) <= 1.4) return { tile: 3, kind: 'rural' };
-  }
-
-  if (wy > 650 && wx < 500) {
-    const dirtY = 740 + Math.sin(wx * 0.03) * 28;
-    if (Math.abs(wy - dirtY) <= 1.1) return { tile: 5, kind: 'dirt' };
-  }
-  if (wx > 690 && wy > 320) {
-    const dirtX = 780 + Math.cos(wy * 0.025) * 32;
-    if (Math.abs(wx - dirtX) <= 1.1) return { tile: 5, kind: 'dirt' };
-  }
-
-  if (inDowntown) {
-    for (const ay of [310, 358, 406, 454, 502]) {
-      if (Math.abs(wy - ay) <= 2.6) return { tile: 1, kind: 'sidewalk' };
+  // 8. Eastbrook Suburbs (East across river: x: 1420..1800, y: 580..1000)
+  const inEastSuburb = wx >= 1420 && wx <= 1800 && wy >= 580 && wy <= 1000;
+  if (inEastSuburb) {
+    for (const ay of [630, 740, 850, 960]) {
+      if (Math.abs(wy - ay) <= 1.5) return { tile: 3, kind: 'street' };
     }
-    for (const sx of [384, 448, 512, 624]) {
+    for (const sx of [1460, 1580, 1700, 1780]) {
+      if (Math.abs(wx - sx) <= 1.4) return { tile: 3, kind: 'street' };
+    }
+  }
+
+  // 9. Winding Rural County Roads (Morgan Valley Rd & Hutchins Mountain Rd + River Bridge)
+  if (wx < 1020 && wy > 980) {
+    const morganY = 1040 + (1020 - wx) * 0.45 + Math.sin(wx * 0.014) * 28;
+    if (Math.abs(wy - morganY) <= 1.5) return { tile: 3, kind: 'rural' };
+  }
+  if (wy > 1420 && wx > 960 && wx < 1300) {
+    const hutchinsX = 1024 + (wy - 1420) * 0.32 + Math.sin(wy * 0.015) * 24;
+    if (Math.abs(wx - hutchinsX) <= 1.5) return { tile: 3, kind: 'rural' };
+  }
+  // Southern rural cross-road with bridge over Euharlee River
+  if (wx >= 1024 && wx <= 1880) {
+    const southCountyY = 1320 + Math.sin(wx * 0.008) * 24;
+    if (Math.abs(wy - southCountyY) <= 1.5) return { tile: 3, kind: 'rural' };
+  }
+
+  // 10. Outer Forest Dirt & Logging Trails
+  if (wy > 1350 && wx < 920) {
+    const dirtY = 1560 + Math.sin(wx * 0.018) * 42;
+    if (Math.abs(wy - dirtY) <= 1.2) return { tile: 5, kind: 'dirt' };
+  }
+  if (wx > 1480 && wy > 1020) {
+    const dirtX = 1660 + Math.cos(wy * 0.016) * 45;
+    if (Math.abs(wx - dirtX) <= 1.2) return { tile: 5, kind: 'dirt' };
+  }
+  if (wy < 460 && wx < 980) {
+    const northTrailY = 380 + Math.sin(wx * 0.015) * 30;
+    if (Math.abs(wy - northTrailY) <= 1.2) return { tile: 5, kind: 'dirt' };
+  }
+
+  // 11. Paved Sidewalks bordering Downtown & Suburban streets
+  if (inDowntown) {
+    for (const ay of [620, 710, 800, 890, 980, 1050]) {
+      if (Math.abs(wy - ay) <= 2.8) return { tile: 1, kind: 'sidewalk' };
+    }
+    for (const sx of [780, 880, 980, 1080, 1240]) {
+      if (Math.abs(wx - sx) <= 2.4) return { tile: 1, kind: 'sidewalk' };
+    }
+    if (Math.abs(wx - 1140) <= 3.7) return { tile: 1, kind: 'sidewalk' };
+  }
+  if (inWestSuburb) {
+    for (const ay of [660, 760, 860, 960, 1040]) {
+      if (Math.abs(wy - ay) <= 2.4) return { tile: 1, kind: 'sidewalk' };
+    }
+    for (const sx of [380, 460, 540, 620, 700]) {
       if (Math.abs(wx - sx) <= 2.3) return { tile: 1, kind: 'sidewalk' };
     }
-    if (Math.abs(wx - 576) <= 3.5) return { tile: 1, kind: 'sidewalk' };
   }
-  if (inSuburb) {
-    if (Math.abs(wy - 360) <= 2.3 || Math.abs(wy - 480) <= 2.3) return { tile: 1, kind: 'sidewalk' };
-    if (Math.abs(wx - 240) <= 2.3 || Math.abs(wx - 320) <= 2.3) return { tile: 1, kind: 'sidewalk' };
+  if (inEastSuburb) {
+    for (const ay of [630, 740, 850, 960]) {
+      if (Math.abs(wy - ay) <= 2.4) return { tile: 1, kind: 'sidewalk' };
+    }
+    for (const sx of [1460, 1580, 1700, 1780]) {
+      if (Math.abs(wx - sx) <= 2.3) return { tile: 1, kind: 'sidewalk' };
+    }
   }
 
   return { tile: 0, kind: 'none' };
@@ -160,27 +212,39 @@ export function isRoadTile(wx, wy) {
   return classifyRoad(wx, wy).tile === 3;
 }
 
+export function getDistrictAt(wx, wy) {
+  if (wx < 12 || wy < 12 || wx >= MAP_SIZE - 12 || wy >= MAP_SIZE - 12) return 'wall';
+  if (isInsideQuarryHub(wx, wy)) return 'quarry';
+  if (wx >= 760 && wx <= 1260 && wy >= 580 && wy <= 1060) return 'downtown';
+  if (wx >= 340 && wx <= 720 && wy >= 620 && wy <= 1060) return 'suburb_west';
+  if (wx >= 1420 && wx <= 1800 && wy >= 580 && wy <= 1000) return 'suburb_east';
+  if (wy >= 470 && wy <= 575 && wx >= 420 && wx <= 1760) return 'highway_strip';
+  if (Math.hypot(wx - QUARRY_X, wy - QUARRY_Y) <= 760) return 'rural';
+  return 'wilderness';
+}
+
 export function getZoneInfo(wx, wy) {
-  if (wx < 10 || wy < 10 || wx >= MAP_SIZE - 10 || wy >= MAP_SIZE - 10) {
-    return { ring: 4, name: 'Quarantine Wall', color: '#94a3b8' };
+  const district = getDistrictAt(wx, wy);
+  if (district === 'wall') {
+    return { ring: 4, name: 'Perimeter Quarantine Wall', color: '#94a3b8' };
   }
-  if (isInsideQuarryHub(wx, wy)) {
-    return { ring: 0, name: 'Rockmart Quarry Hub', color: '#4ade80' };
+  if (district === 'quarry') {
+    return { ring: 0, name: 'Rockmart Quarry Safe Hub', color: '#4ade80' };
   }
-  if (wx >= 360 && wx <= 630 && wy >= 290 && wy <= 540) {
+  if (district === 'downtown') {
     return { ring: 1, name: 'Downtown Rockmart', color: '#38bdf8' };
   }
-  if (wx >= 210 && wx <= 365 && wy >= 330 && wy <= 510) {
+  if (district === 'suburb_west') {
     return { ring: 1, name: 'Oakridge Suburbs', color: '#38bdf8' };
   }
-
-  const qc = getQuarryCenter();
-  const distFromQuarry = Math.hypot(wx - qc.x, wy - qc.y);
-  const warp = Math.sin(wx * 0.015) * 28 + Math.cos(wy * 0.015) * 28;
-  const effDist = distFromQuarry + warp;
-
-  if (effDist <= 385) {
-    return { ring: 2, name: 'Rural Valley & US-278', color: '#f59e0b' };
+  if (district === 'suburb_east') {
+    return { ring: 2, name: 'Eastbrook Suburbs', color: '#f59e0b' };
+  }
+  if (district === 'highway_strip') {
+    return { ring: 2, name: 'US-278 Commercial Corridor', color: '#f59e0b' };
+  }
+  if (district === 'rural') {
+    return { ring: 2, name: 'Cedar Valley Farmlands', color: '#f59e0b' };
   }
   return { ring: 3, name: 'Outer Pine Quarantine', color: '#ef4444' };
 }
@@ -356,215 +420,36 @@ export function stampCompoundBuilding(chunk, config) {
   });
 }
 
-// Rasterizes an arbitrary angled/L-shaped OSM polygon cellSet without bounding-box bloat
-export function stampPolygonBuilding(chunk, config) {
-  const {
-    id,
-    name,
-    category,
-    cellSet,
-    polygonPts,
-    doorState = 'unlocked',
-    seed = 0.5,
-    defaultRevealed = false
-  } = config;
-
-  if (!cellSet || cellSet.size === 0) return;
-
-  const baseX = chunk.cx * CHUNK_SIZE;
-  const baseY = chunk.cy * CHUNK_SIZE;
-
-  // Carve out any cells that overlap an existing street (tile === 3) so roads stay unobstructed
-  const cleanSet = new Set();
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-
-  for (const key of cellSet) {
-    const [wx, wy] = key.split(',').map(Number);
-    const lx = wx - baseX;
-    const ly = wy - baseY;
-    if (lx >= 0 && lx < CHUNK_SIZE && ly >= 0 && ly < CHUNK_SIZE) {
-      if (chunk.tiles[ly * CHUNK_SIZE + lx] === 3) continue;
-    }
-    cleanSet.add(key);
-    if (wx < minX) minX = wx;
-    if (wy < minY) minY = wy;
-    if (wx > maxX) maxX = wx;
-    if (wy > maxY) maxY = wy;
-  }
-
-  if (cleanSet.size === 0) return;
-
-  const palette =
-    category === 'commercial'
-      ? COMMERCIAL_PALETTES[Math.floor(seed * 97) % COMMERCIAL_PALETTES.length]
-      : HOUSE_PALETTES[Math.floor(seed * 131) % HOUSE_PALETTES.length];
-
-  const roofStyle =
-    category === 'commercial'
-      ? 'parapet'
-      : seed > 0.45
-      ? 'gable'
-      : 'hip';
-
-  // Pick a perimeter cell bordering an open walkable tile (ideally sidewalk/street) for the front door
-  let doorCell = null;
-  let doorDir = { dx: 0, dy: 1 };
-  let bestScore = -1;
-
-  for (const key of cleanSet) {
-    const [wx, wy] = key.split(',').map(Number);
-    const neighbors = [
-      { dx: 0, dy: 1, x: wx, y: wy + 1 },
-      { dx: 0, dy: -1, x: wx, y: wy - 1 },
-      { dx: 1, dy: 0, x: wx + 1, y: wy },
-      { dx: -1, dy: 0, x: wx - 1, y: wy }
-    ];
-    for (const nb of neighbors) {
-      if (cleanSet.has(`${nb.x},${nb.y}`)) continue;
-      const lx = nb.x - baseX;
-      const ly = nb.y - baseY;
-      let score = 1;
-      if (lx >= 0 && lx < CHUNK_SIZE && ly >= 0 && ly < CHUNK_SIZE) {
-        const t = chunk.tiles[ly * CHUNK_SIZE + lx];
-        if (t === 2 || t === 4) continue; // Don't open into a wall or creek
-        if (t === 3) score = 4;
-        else if (t === 1) score = 3;
-        else if (t === 0 || t === 5) score = 2;
-      }
-      if (score > bestScore) {
-        bestScore = score;
-        doorCell = { x: wx, y: wy };
-        doorDir = { dx: nb.dx, dy: nb.dy };
-      }
+function isLotClear(bx, by, bw, bh, margin = 2) {
+  for (let y = by - margin; y <= by + bh + margin; y++) {
+    for (let x = bx - margin; x <= bx + bw + margin; x++) {
+      if (x < 16 || y < 16 || x >= MAP_SIZE - 16 || y >= MAP_SIZE - 16) return false;
+      if (isInsideQuarryHub(x, y) || isCreekTile(x, y)) return false;
+      if (getRoadType(x, y) === 3) return false;
     }
   }
-
-  const wallTiles = [];
-
-  for (const key of cleanSet) {
-    const [wx, wy] = key.split(',').map(Number);
-    const hasN = cleanSet.has(`${wx},${wy - 1}`);
-    const hasS = cleanSet.has(`${wx},${wy + 1}`);
-    const hasW = cleanSet.has(`${wx - 1},${wy}`);
-    const hasE = cleanSet.has(`${wx + 1},${wy}`);
-
-    const isPerimeter = !hasN || !hasS || !hasW || !hasE;
-    const isDoor = doorCell && doorCell.x === wx && doorCell.y === wy;
-
-    const lx = wx - baseX;
-    const ly = wy - baseY;
-    const inChunk = lx >= 0 && lx < CHUNK_SIZE && ly >= 0 && ly < CHUNK_SIZE;
-
-    if (isDoor) {
-      if (inChunk) {
-        chunk.tiles[ly * CHUNK_SIZE + lx] = 1;
-        const doorKey = `${wx},${wy}`;
-        const isOpen = openedDoors.has(doorKey);
-        const maxHp = doorState === 'barricaded' ? 90 : 60;
-        chunk.doors.push({
-          key: doorKey,
-          x: wx,
-          y: wy,
-          buildingId: id,
-          state: isOpen ? 'open' : doorState,
-          hp: doorDamage.has(doorKey) ? doorDamage.get(doorKey) : maxHp,
-          maxHp
-        });
-
-        for (let step = 1; step <= 3; step++) {
-          const sx = lx + doorDir.dx * step;
-          const sy = ly + doorDir.dy * step;
-          if (sx >= 0 && sx < CHUNK_SIZE && sy >= 0 && sy < CHUNK_SIZE) {
-            if (chunk.tiles[sy * CHUNK_SIZE + sx] === 0) {
-              chunk.tiles[sy * CHUNK_SIZE + sx] = 1;
-            }
-          }
-        }
-      }
-    } else if (isPerimeter) {
-      if (inChunk) chunk.tiles[ly * CHUNK_SIZE + lx] = 2;
-      const isCorner = (!hasN && !hasW) || (!hasN && !hasE) || (!hasS && !hasW) || (!hasS && !hasE);
-      const hasWindow =
-        !isCorner &&
-        ((!hasS && (wx + wy) % 2 === 0) || (!hasE && (wx + wy) % 2 === 1));
-      const isBoarded = hasWindow && doorState === 'barricaded';
-      wallTiles.push({
-        x: wx,
-        y: wy,
-        faceSouth: !hasS,
-        faceEast: !hasE,
-        hasWindow,
-        isBoarded
-      });
-    } else {
-      if (inChunk) chunk.tiles[ly * CHUNK_SIZE + lx] = 1;
-    }
-  }
-
-  // Place interior props on guaranteed interior floor cells (not perimeter walls)
-  const props = [];
-  for (const key of cleanSet) {
-    const [wx, wy] = key.split(',').map(Number);
-    if (
-      cleanSet.has(`${wx},${wy - 1}`) &&
-      cleanSet.has(`${wx},${wy + 1}`) &&
-      cleanSet.has(`${wx - 1},${wy}`) &&
-      cleanSet.has(`${wx + 1},${wy}`) &&
-      cleanSet.has(`${wx + 2},${wy}`)
-    ) {
-      props.push({
-        x: wx,
-        y: wy,
-        w: 2,
-        d: 1,
-        kind: category === 'commercial' ? 'counter' : 'bed'
-      });
-      break;
-    }
-  }
-
-  chunk.buildings.push({
-    id,
-    name,
-    category,
-    rects: [{ x1: minX, y1: minY, x2: maxX, y2: maxY }],
-    polygonPts,
-    x1: minX,
-    y1: minY,
-    x2: maxX,
-    y2: maxY,
-    cellSet: cleanSet,
-    wallTiles,
-    props,
-    palette,
-    roofStyle,
-    porchRect: null,
-    defaultRevealed
-  });
+  return true;
 }
 
 function buildHouseBlueprint(chunk, id, name, bx, by, bw, bh, doorState, seed, isRural = false) {
   const shapeRoll = Math.floor(seed * 100) % 4;
   const rects = [{ x1: bx, y1: by, x2: bx + bw, y2: by + bh }];
 
-  if (shapeRoll === 1 && bw >= 7) {
+  if (shapeRoll === 1 && bw >= 7 && isLotClear(bx + bw - 3, by + bh, 5, 3, 1)) {
     rects.push({
       x1: bx + bw - 3,
       y1: by + bh,
       x2: bx + bw + 2,
       y2: by + bh + 3
     });
-  } else if (shapeRoll === 2 && bh >= 7) {
+  } else if (shapeRoll === 2 && bh >= 7 && isLotClear(bx - 3, by + 1, 3, bh - 3, 1)) {
     rects.push({
       x1: bx - 3,
       y1: by + 1,
       x2: bx,
       y2: by + bh - 2
     });
-  } else if (shapeRoll === 3 && bw >= 8) {
+  } else if (shapeRoll === 3 && bw >= 8 && isLotClear(bx + 2, by - 2, bw - 4, 2, 1)) {
     rects.push({
       x1: bx + 2,
       y1: by - 2,
@@ -602,14 +487,14 @@ function buildCommercialBlueprint(chunk, id, name, bx, by, bw, bh, doorState, se
   const shapeRoll = Math.floor(seed * 100) % 3;
   const rects = [{ x1: bx, y1: by, x2: bx + bw, y2: by + bh }];
 
-  if (shapeRoll === 1 && bw >= 9) {
+  if (shapeRoll === 1 && bw >= 9 && isLotClear(bx + bw - 4, by + bh, 4, 4, 1)) {
     rects.push({
       x1: bx + bw - 4,
       y1: by + bh,
       x2: bx + bw,
       y2: by + bh + 4
     });
-  } else if (shapeRoll === 2 && bw >= 10) {
+  } else if (shapeRoll === 2 && bw >= 10 && isLotClear(bx + 1, by - 3, bw - 2, 3, 1)) {
     rects.push({
       x1: bx + 1,
       y1: by - 3,
@@ -655,102 +540,55 @@ function generateChunk(cx, cy) {
   const baseX = cx * CHUNK_SIZE;
   const baseY = cy * CHUNK_SIZE;
 
-  const usedOsmAtlas = atlasState.loaded
-    ? applyAtlasToChunk(chunk, baseX, baseY, CHUNK_SIZE, stampPolygonBuilding, isInsideQuarryHub)
-    : false;
+  // Pass 1: Terrain, Euharlee River, Bridges, Roads & Quarry Safe Hub
+  for (let ly = 0; ly < CHUNK_SIZE; ly++) {
+    const wy = baseY + ly;
+    for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+      const wx = baseX + lx;
+      const idx = ly * CHUNK_SIZE + lx;
 
-  if (!usedOsmAtlas) {
-    for (let ly = 0; ly < CHUNK_SIZE; ly++) {
-      const wy = baseY + ly;
-      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-        const wx = baseX + lx;
-        const idx = ly * CHUNK_SIZE + lx;
-
-        if (wx < 10 || wy < 10 || wx >= MAP_SIZE - 10 || wy >= MAP_SIZE - 10) {
-          tiles[idx] = 2;
-          continue;
-        }
-
-        const roadInfo = classifyRoad(wx, wy);
-        if (roadInfo.kind !== 'none') {
-          tiles[idx] = roadInfo.tile;
-          roadKinds[idx] = roadInfo.kind;
-          continue;
-        }
-
-        if (isQuarryPerimeter(wx, wy)) {
-          tiles[idx] = 2;
-          continue;
-        }
-
-        if (isInsideQuarryHub(wx, wy)) {
-          tiles[idx] = 1;
-          continue;
-        }
-
-        if (isCreekTile(wx, wy)) {
-          tiles[idx] = 4;
-          continue;
-        }
-
-        tiles[idx] = 0;
+      if (wx < 12 || wy < 12 || wx >= MAP_SIZE - 12 || wy >= MAP_SIZE - 12) {
+        tiles[idx] = 2;
+        continue;
       }
+
+      // Roads & Bridges take precedence over river water so bridges span cleanly
+      const roadInfo = classifyRoad(wx, wy);
+      if (roadInfo.kind !== 'none') {
+        tiles[idx] = roadInfo.tile;
+        roadKinds[idx] = roadInfo.kind;
+        continue;
+      }
+
+      if (isQuarryPerimeter(wx, wy)) {
+        tiles[idx] = 2;
+        continue;
+      }
+
+      if (isInsideQuarryHub(wx, wy)) {
+        tiles[idx] = 1;
+        continue;
+      }
+
+      if (isCreekTile(wx, wy)) {
+        tiles[idx] = 4;
+        continue;
+      }
+
+      tiles[idx] = 0;
     }
-  } else {
-    for (let ly = 0; ly < CHUNK_SIZE; ly++) {
-      const wy = baseY + ly;
-      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
-        const wx = baseX + lx;
-        const idx = ly * CHUNK_SIZE + lx;
-        if (isQuarryPerimeter(wx, wy) && tiles[idx] !== 3) {
-          tiles[idx] = 2;
-        } else if (isInsideQuarryHub(wx, wy) && tiles[idx] !== 3) {
-          tiles[idx] = 1;
-        }
-      }
-    }
-
-    const midX = baseX + 16;
-    const midY = baseY + 16;
-    const zone = getZoneInfo(midX, midY);
-    chunk.buildings.forEach((b, idx) => {
-      // Pick an actual interior cell of the polygon for loot & zombie spawns
-      let lx = Math.floor((b.x1 + b.x2) / 2) + 0.5;
-      let ly = Math.floor((b.y1 + b.y2) / 2) + 0.5;
-      if (b.cellSet && !b.cellSet.has(`${Math.floor(lx)},${Math.floor(ly)}`)) {
-        const firstKey = b.cellSet.values().next().value;
-        if (firstKey) {
-          const [fx, fy] = firstKey.split(',').map(Number);
-          lx = fx + 0.5;
-          ly = fy + 0.5;
-        }
-      }
-
-      const crateRoll = hash2d(cx + idx * 19, cy + 59);
-      const supplyItem =
-        zone.ring === 3
-          ? { name: 'Prototype Convoy Core', type: 'heavy', value: 6, color: '#e879f9' }
-          : crateRoll > 0.72
-          ? { name: 'Heavy Supply Crate', type: 'heavy', value: 4, color: '#fb923c' }
-          : { name: 'Scrap Plating', type: 'convoy', value: 1, color: '#22d3ee' };
-      addChunkLoot(chunk, `osm-loot-${cx}-${cy}-${idx}`, lx, ly, supplyItem);
-      if (zone.ring > 0) {
-        addChunkZombie(chunk, `osm-z-${cx}-${cy}-${idx}`, lx, ly, zone.ring, false);
-      }
-    });
   }
 
-  // 1. Rockmart Slate Quarry Safe Hub Landmarks (dynamically centered inside resized Quarry)
-  const qc = getQuarryCenter();
-  if (Math.abs(baseX + 16 - qc.x) <= 48 && Math.abs(baseY + 16 - qc.y) <= 48) {
+  // Pass 2: Guaranteed Landmarks (Quarry Safe Hub & Rockmart Police Precinct)
+  if (Math.abs(baseX + 16 - QUARRY_X) <= 48 && Math.abs(baseY + 16 - QUARRY_Y) <= 48) {
     stampCompoundBuilding(chunk, {
       id: 'quarry-garage',
       name: 'Convoy Garage',
       category: 'commercial',
-      rects: [{ x1: qc.x - 16, y1: qc.y - 16, x2: qc.x - 6, y2: qc.y - 7 }],
+      rects: [{ x1: QUARRY_X - 16, y1: QUARRY_Y - 16, x2: QUARRY_X - 6, y2: QUARRY_Y - 7 }],
       doorSpecs: [
-        { x: qc.x - 11, y: qc.y - 7, state: 'unlocked', dir: { dx: 0, dy: 1 } },
-        { x: qc.x - 6, y: qc.y - 12, state: 'unlocked', dir: { dx: 1, dy: 0 } }
+        { x: QUARRY_X - 11, y: QUARRY_Y - 7, state: 'unlocked', dir: { dx: 0, dy: 1 } },
+        { x: QUARRY_X - 6, y: QUARRY_Y - 12, state: 'unlocked', dir: { dx: 1, dy: 0 } }
       ],
       seed: 0.42,
       defaultRevealed: true
@@ -760,35 +598,35 @@ function generateChunk(cx, cy) {
       id: 'quarry-depot',
       name: 'Quarry Depot',
       category: 'commercial',
-      rects: [{ x1: qc.x + 6, y1: qc.y - 16, x2: qc.x + 16, y2: qc.y - 7 }],
-      doorSpecs: [{ x: qc.x + 6, y: qc.y - 12, state: 'unlocked', dir: { dx: -1, dy: 0 } }],
+      rects: [{ x1: QUARRY_X + 6, y1: QUARRY_Y - 16, x2: QUARRY_X + 16, y2: QUARRY_Y - 7 }],
+      doorSpecs: [{ x: QUARRY_X + 6, y: QUARRY_Y - 12, state: 'unlocked', dir: { dx: -1, dy: 0 } }],
       seed: 0.77,
       defaultRevealed: true
     });
 
-    const gCx = Math.floor(qc.x / CHUNK_SIZE);
-    const gCy = Math.floor(qc.y / CHUNK_SIZE);
+    const gCx = Math.floor(QUARRY_X / CHUNK_SIZE);
+    const gCy = Math.floor(QUARRY_Y / CHUNK_SIZE);
     if (cx === gCx && cy === gCy) {
-      addChunkLoot(chunk, 'q-crowbar', qc.x - 3.5, qc.y - 1.5, {
+      addChunkLoot(chunk, 'q-crowbar', QUARRY_X - 3.5, QUARRY_Y - 1.5, {
         name: 'Crowbar',
         type: 'weapon',
         weaponId: 'crowbar',
         color: '#38bdf8'
       });
-      addChunkLoot(chunk, 'q-beans', qc.x - 2.5, qc.y - 2.5, {
+      addChunkLoot(chunk, 'q-beans', QUARRY_X - 2.5, QUARRY_Y - 2.5, {
         name: 'Canned Beans',
         type: 'food',
         hunger: 35,
         hp: 5,
         color: '#f97316'
       });
-      addChunkLoot(chunk, 'q-pick', qc.x - 4.5, qc.y - 0.5, {
+      addChunkLoot(chunk, 'q-pick', QUARRY_X - 4.5, QUARRY_Y - 0.5, {
         name: 'Lockpick Set',
         type: 'tool',
         toolId: 'lockpick',
         color: '#fbbf24'
       });
-      addChunkLoot(chunk, 'q-med', qc.x + 10.5, qc.y - 11.5, {
+      addChunkLoot(chunk, 'q-med', QUARRY_X + 10.5, QUARRY_Y - 11.5, {
         name: 'First Aid Kit',
         type: 'med',
         hunger: 0,
@@ -798,83 +636,74 @@ function generateChunk(cx, cy) {
     }
   }
 
-  // 2. Rockmart Police Precinct (only stamp synthetic building when OSM doesn't supply one)
-  if (cx === 17 && cy === 14) {
-    if (!usedOsmAtlas || !atlasState.policeLocation) {
-      stampCompoundBuilding(chunk, {
-        id: 'rockmart-pd',
-        name: 'Rockmart Police Precinct',
-        category: 'commercial',
-        rects: [
-          { x1: 560, y1: 460, x2: 572, y2: 472 },
-          { x1: 568, y1: 472, x2: 572, y2: 476 }
-        ],
-        doorSpecs: [
-          { x: 565, y: 472, state: 'locked', dir: { dx: 0, dy: 1 } },
-          { x: 560, y: 466, state: 'barricaded', dir: { dx: -1, dy: 0 } }
-        ],
-        seed: 0.22
-      });
-    }
+  // Rockmart Police Precinct at (1120, 920) in Downtown Rockmart
+  if (cx === 35 && cy === 28) {
+    stampCompoundBuilding(chunk, {
+      id: 'rockmart-pd',
+      name: 'Rockmart Police Precinct',
+      category: 'commercial',
+      rects: [
+        { x1: 1120, y1: 904, x2: 1132, y2: 916 },
+        { x1: 1128, y1: 916, x2: 1132, y2: 920 }
+      ],
+      doorSpecs: [
+        { x: 1125, y: 916, state: 'locked', dir: { dx: 0, dy: 1 } },
+        { x: 1120, y: 910, state: 'barricaded', dir: { dx: -1, dy: 0 } }
+      ],
+      seed: 0.22
+    });
 
-    addChunkLoot(chunk, 'pd-radio-1', 564.5, 463.5, {
+    addChunkLoot(chunk, 'pd-radio-1', 1124.5, 907.5, {
       name: 'Police Radio',
       type: 'radio',
       charges: 3,
       color: '#38bdf8'
     });
-    addChunkLoot(chunk, 'pd-radio-2', 569.5, 463.5, {
+    addChunkLoot(chunk, 'pd-radio-2', 1129.5, 907.5, {
       name: 'Police Radio',
       type: 'radio',
       charges: 3,
       color: '#38bdf8'
     });
-    addChunkLoot(chunk, 'pd-pistol', 569.5, 468.5, {
+    addChunkLoot(chunk, 'pd-pistol', 1129.5, 912.5, {
       name: '9mm Pistol',
       type: 'weapon',
       weaponId: 'pistol',
       color: '#94a3b8'
     });
 
-    addChunkZombie(chunk, 'z-pd-1', 563.5, 468.5, 2, false);
-    addChunkZombie(chunk, 'z-pd-2', 569.5, 465.5, 2, false);
-    if (!usedOsmAtlas) return chunk;
-  }
-
-  if (usedOsmAtlas) {
-    const midX = baseX + 16;
-    const midY = baseY + 16;
-    const zone = getZoneInfo(midX, midY);
-    if (zone.ring > 0 && zone.ring < 4) {
-      for (let i = 0; i < 2; i++) {
-        const zx = baseX + 4 + Math.floor(hash2d(cx + i * 13, cy + 5) * 24) + 0.5;
-        const zy = baseY + 4 + Math.floor(hash2d(cx + 7, cy + i * 19) * 24) + 0.5;
-        const tx = Math.floor(zx - baseX);
-        const ty = Math.floor(zy - baseY);
-        if (tiles[ty * CHUNK_SIZE + tx] !== 2 && !isInsideQuarryHub(zx, zy)) {
-          addChunkZombie(chunk, `z-osm-out-${cx}-${cy}-${i}`, zx, zy, zone.ring, false);
-        }
-      }
-    }
+    addChunkZombie(chunk, 'z-pd-1', 1123.5, 912.5, 2, false);
+    addChunkZombie(chunk, 'z-pd-2', 1129.5, 909.5, 2, false);
     return chunk;
   }
 
-  // Fallback procedural buildings when OSM atlas isn't active
+  // Pass 3: Regional District Building & Encounter Rules
   const midX = baseX + 16;
   const midY = baseY + 16;
+  const district = getDistrictAt(midX, midY);
   const zone = getZoneInfo(midX, midY);
-  if (zone.ring === 0 || zone.ring === 4) return chunk;
+  if (district === 'quarry' || district === 'wall') return chunk;
 
-  const isDowntownBlock = midX >= 360 && midX <= 630 && midY >= 290 && midY <= 540;
-  const isSuburbBlock = midX >= 210 && midX <= 365 && midY >= 330 && midY <= 510;
-  const isRuralArea = !isDowntownBlock && !isSuburbBlock;
+  const isDowntown = district === 'downtown';
+  const isSuburb = district === 'suburb_west' || district === 'suburb_east';
+  const isHighwayStrip = district === 'highway_strip';
+  const isRural = district === 'rural' || district === 'wilderness';
 
   const seed = hash2d(cx, cy);
-  const spawnThreshold = isDowntownBlock ? 0.15 : isSuburbBlock ? 0.2 : 0.78;
+  const spawnThreshold = isDowntown
+    ? 0.12
+    : isSuburb
+    ? 0.16
+    : isHighwayStrip
+    ? 0.25
+    : district === 'rural'
+    ? 0.68
+    : 0.84;
 
   if (seed > spawnThreshold) {
+    // Find an east-west street inside this chunk to align storefronts/houses along
     let targetRoadY = null;
-    for (let y = baseY + 4; y <= baseY + 28; y++) {
+    for (let y = baseY + 12; y <= baseY + 29; y++) {
       if (getRoadType(baseX + 16, y) === 3) {
         targetRoadY = y;
         break;
@@ -882,36 +711,34 @@ function generateChunk(cx, cy) {
     }
 
     const lots = [];
-    if (targetRoadY !== null && !isRuralArea) {
-      const by = targetRoadY - 11;
-      if (by >= baseY + 2) {
-        lots.push({ bx: baseX + 4, by, bw: 9, bh: 8, s: hash2d(cx * 5, cy * 3) });
-        if (hash2d(cx + 9, cy + 2) > 0.35) {
+    if (targetRoadY !== null && !isRural) {
+      const by = targetRoadY - 12;
+      if (by >= baseY + 1) {
+        lots.push({ bx: baseX + 3, by, bw: 9, bh: 8, s: hash2d(cx * 5, cy * 3) });
+        if (hash2d(cx + 9, cy + 2) > 0.28) {
           lots.push({ bx: baseX + 17, by, bw: 9, bh: 8, s: hash2d(cx * 11, cy * 7) });
         }
       }
-    } else if (isRuralArea) {
-      const bx = baseX + 8 + Math.floor(hash2d(cx + 3, cy) * 8);
-      const by = baseY + 8 + Math.floor(hash2d(cx, cy + 5) * 8);
-      let ok = true;
-      for (let yy = by - 4; yy <= by + 13; yy += 2) {
-        for (let xx = bx - 4; xx <= bx + 13; xx += 2) {
-          if (isCreekTile(xx, yy) || isInsideQuarryHub(xx, yy) || getRoadType(xx, yy) !== 0) {
-            ok = false;
-          }
-        }
+    } else if (!isRural && hash2d(cx * 13, cy * 17) > 0.35) {
+      // Mid-block lots in Downtown/Suburbs
+      lots.push({ bx: baseX + 5, by: baseY + 6, bw: 9, bh: 8, s: hash2d(cx * 7, cy * 13) });
+      if (isDowntown) {
+        lots.push({ bx: baseX + 18, by: baseY + 16, bw: 9, bh: 8, s: hash2d(cx * 19, cy * 23) });
       }
-      if (ok) {
-        lots.push({ bx, by, bw: 9, bh: 8, s: hash2d(cx * 17, cy * 19), rural: true });
-      }
+    } else if (isRural) {
+      const bx = baseX + 7 + Math.floor(hash2d(cx + 3, cy) * 8);
+      const by = baseY + 7 + Math.floor(hash2d(cx, cy + 5) * 8);
+      lots.push({ bx, by, bw: 9, bh: 8, s: hash2d(cx * 17, cy * 19), rural: true });
     }
 
     lots.forEach((lot, idx) => {
-      for (let xx = lot.bx - 1; xx <= lot.bx + lot.bw + 1; xx++) {
-        if (getRoadType(xx, lot.by + 2) === 3) return;
-      }
+      // Strictly enforce zero overlap with roads, river, or quarry
+      if (!isLotClear(lot.bx, lot.by, lot.bw, lot.bh, 2)) return;
 
-      const isCommercial = isDowntownBlock && lot.s > 0.45 && !lot.rural;
+      const isCommercial =
+        !lot.rural &&
+        (isHighwayStrip || (isDowntown && lot.s > 0.38));
+
       const doorRoll = hash2d(cx + idx * 17, cy + 29);
       const doorState =
         zone.ring === 1
@@ -919,7 +746,7 @@ function generateChunk(cx, cy) {
             ? 'locked'
             : 'unlocked'
           : zone.ring === 2
-          ? doorRoll > 0.52
+          ? doorRoll > 0.50
             ? 'barricaded'
             : 'locked'
           : 'barricaded';
@@ -928,21 +755,23 @@ function generateChunk(cx, cy) {
         'Corner Market',
         'Piedmont Pharmacy',
         'Elm St Cafe',
-        'Auto Parts Shop',
+        'Auto Parts Depot',
         'Rockmart Laundromat',
-        'Feed & Seed Store'
+        'Feed & Seed Store',
+        'US-278 Truck Stop',
+        'Hardware & Supply'
       ];
       const houseNames = [
         'Craftsman Home',
-        'Brick Ranch',
+        'Georgia Brick Ranch',
         'Oakridge Bungalow',
-        'Family Residence',
-        'Porch Cottage',
-        'Split-Level House'
+        'Colonial Two-Story',
+        'Wrap-Porch Cottage',
+        'Suburban Split-Level'
       ];
       const ruralNames = [
         'Valley Farmhouse',
-        'Timber Barn',
+        'Cedar Timber Barn',
         'Pine Woods Cabin',
         'Creekside Homestead'
       ];
@@ -964,7 +793,7 @@ function generateChunk(cx, cy) {
         const supplyItem =
           zone.ring === 3
             ? { name: 'Prototype Convoy Core', type: 'heavy', value: 6, color: '#e879f9' }
-            : crateRoll > 0.68
+            : crateRoll > 0.66 || isHighwayStrip
             ? { name: 'Heavy Supply Crate', type: 'heavy', value: 4, color: '#fb923c' }
             : zone.ring === 1
             ? { name: 'Scrap Plating', type: 'convoy', value: 1, color: '#22d3ee' }
@@ -993,13 +822,14 @@ function generateChunk(cx, cy) {
     });
   }
 
-  const outdoorCount = isRuralArea ? 1 : zone.ring === 1 ? 2 : 3;
+  // Outdoor roaming zombies scaled by district density
+  const outdoorCount = isDowntown ? 3 : isSuburb || isHighwayStrip ? 2 : 1;
   for (let i = 0; i < outdoorCount; i++) {
     const zx = baseX + 3 + Math.floor(hash2d(cx + i * 13, cy + 5) * 26) + 0.5;
     const zy = baseY + 3 + Math.floor(hash2d(cx + 7, cy + i * 19) * 26) + 0.5;
     const tx = Math.floor(zx - baseX);
     const ty = Math.floor(zy - baseY);
-    if (tiles[ty * CHUNK_SIZE + tx] !== 2 && !isInsideQuarryHub(zx, zy)) {
+    if (tiles[ty * CHUNK_SIZE + tx] !== 2 && tiles[ty * CHUNK_SIZE + tx] !== 4 && !isInsideQuarryHub(zx, zy)) {
       addChunkZombie(chunk, `z-out-${cx}-${cy}-${i}`, zx, zy, zone.ring, false);
     }
   }
