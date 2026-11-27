@@ -44,7 +44,6 @@ export function isInsideQuarryHub(wx, wy) {
 
 function isQuarryPerimeter(wx, wy) {
   if (!isInsideQuarryHub(wx, wy)) return false;
-  // Leave a 5-tile north gate opening onto S Marble St (x ≈ 1024)
   if (wy < QUARRY_Y && Math.abs(wx - QUARRY_X) <= 2.5) return false;
   return (
     !isInsideQuarryHub(wx + 1, wy) ||
@@ -68,7 +67,6 @@ export function isCreekTile(wx, wy) {
 }
 
 export function classifyRoad(wx, wy) {
-  // 1. Interstate-20 Divided Freeway (East-West across the north)
   const i20Y = 230 + Math.sin(wx * 0.0025) * 14;
   const dyI20 = wy - i20Y;
   if (Math.abs(dyI20) <= 3.8) {
@@ -76,7 +74,6 @@ export function classifyRoad(wx, wy) {
     return { tile: 3, kind: 'freeway' };
   }
 
-  // Diamond Interchange Ramps connecting I-20 down to US-278
   if (wy >= 230 && wy <= 515) {
     const t = (wy - 230) / 285;
     const westRampX = 1045 + t * 95;
@@ -86,13 +83,11 @@ export function classifyRoad(wx, wy) {
     }
   }
 
-  // 2. US-278 Highway (Major East-West commercial corridor & river bridge)
   const us278Y = 515 + Math.sin(wx * 0.0035) * 16;
   if (Math.abs(wy - us278Y) <= 2.5) {
     return { tile: 3, kind: 'highway' };
   }
 
-  // 3. Piedmont Blvd (Divided 4-lane spine from US-278 into Downtown)
   if (wy >= 512 && wy <= 1060) {
     const dxBlvd = wx - 1140;
     if (Math.abs(dxBlvd) <= 2.7) {
@@ -101,18 +96,15 @@ export function classifyRoad(wx, wy) {
     }
   }
 
-  // 4. S Marble St (Connects Quarry Safe Hub north into Downtown & US-278)
   const marbleX = 1024 + (wy < 1100 ? (1100 - wy) * 0.12 : 0);
   if (wy >= 515 && wy <= 1435 && Math.abs(wx - marbleX) <= 1.9) {
     return { tile: 3, kind: 'avenue' };
   }
 
-  // 5. Westfield Collector (North-South spine serving Oakridge Suburbs)
   if (wy >= 515 && wy <= 1120 && Math.abs(wx - 540) <= 1.8) {
     return { tile: 3, kind: 'avenue' };
   }
 
-  // 6. Downtown Rockmart Grid (x: 760..1260, y: 580..1060)
   const inDowntown = wx >= 760 && wx <= 1260 && wy >= 580 && wy <= 1060;
   if (inDowntown) {
     for (const ay of [620, 710, 800, 890, 980, 1050]) {
@@ -123,7 +115,6 @@ export function classifyRoad(wx, wy) {
     }
   }
 
-  // 7. Oakridge Suburbs (West: x: 340..720, y: 620..1060)
   const inWestSuburb = wx >= 340 && wx <= 720 && wy >= 620 && wy <= 1060;
   if (inWestSuburb) {
     for (const ay of [660, 760, 860, 960, 1040]) {
@@ -134,7 +125,6 @@ export function classifyRoad(wx, wy) {
     }
   }
 
-  // 8. Eastbrook Suburbs (East across river: x: 1420..1800, y: 580..1000)
   const inEastSuburb = wx >= 1420 && wx <= 1800 && wy >= 580 && wy <= 1000;
   if (inEastSuburb) {
     for (const ay of [630, 740, 850, 960]) {
@@ -145,7 +135,6 @@ export function classifyRoad(wx, wy) {
     }
   }
 
-  // 9. Winding Rural County Roads (Morgan Valley Rd & Hutchins Mountain Rd + River Bridge)
   if (wx < 1020 && wy > 980) {
     const morganY = 1040 + (1020 - wx) * 0.45 + Math.sin(wx * 0.014) * 28;
     if (Math.abs(wy - morganY) <= 1.5) return { tile: 3, kind: 'rural' };
@@ -159,7 +148,6 @@ export function classifyRoad(wx, wy) {
     if (Math.abs(wy - southCountyY) <= 1.5) return { tile: 3, kind: 'rural' };
   }
 
-  // 10. Outer Forest Dirt & Logging Trails
   if (wy > 1350 && wx < 920) {
     const dirtY = 1560 + Math.sin(wx * 0.018) * 42;
     if (Math.abs(wy - dirtY) <= 1.2) return { tile: 5, kind: 'dirt' };
@@ -173,7 +161,6 @@ export function classifyRoad(wx, wy) {
     if (Math.abs(wy - northTrailY) <= 1.2) return { tile: 5, kind: 'dirt' };
   }
 
-  // 11. Paved Sidewalks bordering Downtown & Suburban streets
   if (inDowntown) {
     for (const ay of [620, 710, 800, 890, 980, 1050]) {
       if (Math.abs(wy - ay) <= 2.8) return { tile: 1, kind: 'sidewalk' };
@@ -522,6 +509,114 @@ function buildCommercialBlueprint(chunk, id, name, bx, by, bw, bh, doorState, se
   };
 }
 
+function populateEnvironmentProps(chunk, district) {
+  const baseX = chunk.cx * CHUNK_SIZE;
+  const baseY = chunk.cy * CHUNK_SIZE;
+
+  const isOccupied = (wx, wy) => {
+    const lx = Math.floor(wx) - baseX;
+    const ly = Math.floor(wy) - baseY;
+    if (lx < 0 || lx >= CHUNK_SIZE || ly < 0 || ly >= CHUNK_SIZE) return true;
+    const t = chunk.tiles[ly * CHUNK_SIZE + lx];
+    if (t === 2 || t === 3 || t === 4) return true;
+    if (isInsideQuarryHub(wx, wy)) return true;
+    for (const b of chunk.buildings) {
+      if (wx >= b.x1 - 1 && wx <= b.x2 + 2 && wy >= b.y1 - 1 && wy <= b.y2 + 3) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  // 1. Roadside streetlights (urban/suburbs), parked cars, and rural split-rail fences
+  for (let ly = 2; ly < CHUNK_SIZE - 2; ly += 4) {
+    const wy = baseY + ly;
+    for (let lx = 2; lx < CHUNK_SIZE - 2; lx += 4) {
+      const wx = baseX + lx;
+      const idx = ly * CHUNK_SIZE + lx;
+      const t = chunk.tiles[idx];
+      const rk = chunk.roadKinds[idx];
+      const r = hash2d(wx * 13, wy * 17);
+
+      if (t === 1 && rk === 'sidewalk' && !isOccupied(wx + 0.5, wy + 0.5)) {
+        if (r > 0.68) {
+          chunk.props.push({ kind: 'streetlight', x: wx + 0.5, y: wy + 0.5, solid: false });
+        } else if (r < 0.14) {
+          chunk.props.push({ kind: 'hydrant', x: wx + 0.5, y: wy + 0.5, solid: false });
+        }
+      } else if (t === 0 && !isOccupied(wx + 0.5, wy + 0.5)) {
+        const nearRoad =
+          getRoadType(wx + 3, wy) === 3 ||
+          getRoadType(wx - 3, wy) === 3 ||
+          getRoadType(wx, wy + 3) === 3 ||
+          getRoadType(wx, wy - 3) === 3;
+
+        if (nearRoad && r > 0.84) {
+          if (district === 'rural' || district === 'wilderness') {
+            chunk.props.push({ kind: 'fence', x: wx + 0.5, y: wy + 0.5, solid: false });
+          } else {
+            chunk.props.push({
+              kind: 'car',
+              x: wx + 0.5,
+              y: wy + 0.5,
+              color: r > 0.92 ? '#991b1b' : r > 0.88 ? '#1d4ed8' : '#cbd5e1',
+              solid: true
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // 2. Trees, bushes & boulders scaled by biome density
+  const treeAttempts =
+    district === 'wilderness'
+      ? 26
+      : district === 'rural'
+      ? 18
+      : district === 'suburb_west' || district === 'suburb_east'
+      ? 10
+      : district === 'quarry'
+      ? 3
+      : 5;
+
+  for (let i = 0; i < treeAttempts; i++) {
+    const lx = 1 + Math.floor(hash2d(chunk.cx * 31 + i, chunk.cy * 17 + 3) * (CHUNK_SIZE - 2));
+    const ly = 1 + Math.floor(hash2d(chunk.cx * 19 + 7, chunk.cy * 29 + i) * (CHUNK_SIZE - 2));
+    const wx = baseX + lx + 0.5;
+    const wy = baseY + ly + 0.5;
+    if (isOccupied(wx, wy)) continue;
+
+    // Avoid blocking building doors
+    let nearDoor = false;
+    for (const d of chunk.doors) {
+      if (Math.hypot(d.x + 0.5 - wx, d.y + 0.5 - wy) < 3.0) {
+        nearDoor = true;
+        break;
+      }
+    }
+    if (nearDoor) continue;
+
+    const kindRoll = hash2d(Math.floor(wx * 3), Math.floor(wy * 5));
+    const kind =
+      kindRoll < 0.14
+        ? 'rock'
+        : kindRoll < 0.34
+        ? 'bush'
+        : district === 'wilderness' || kindRoll > 0.65
+        ? 'pine'
+        : 'oak';
+
+    chunk.props.push({
+      kind,
+      x: wx,
+      y: wy,
+      scale: 0.85 + hash2d(i * 11, chunk.cx + chunk.cy) * 0.4,
+      solid: kind === 'pine' || kind === 'oak' || kind === 'rock'
+    });
+  }
+}
+
 function generateChunk(cx, cy) {
   const tiles = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE);
   const roadKinds = new Array(CHUNK_SIZE * CHUNK_SIZE).fill('none');
@@ -533,7 +628,8 @@ function generateChunk(cx, cy) {
     buildings: [],
     doors: [],
     loot: [],
-    zombies: []
+    zombies: [],
+    props: []
   };
 
   const baseX = cx * CHUNK_SIZE;
@@ -671,6 +767,7 @@ function generateChunk(cx, cy) {
 
     addChunkZombie(chunk, 'z-pd-1', 1123.5, 912.5, 2, false);
     addChunkZombie(chunk, 'z-pd-2', 1129.5, 909.5, 2, false);
+    populateEnvironmentProps(chunk, 'downtown');
     return chunk;
   }
 
@@ -679,154 +776,152 @@ function generateChunk(cx, cy) {
   const midY = baseY + 16;
   const district = getDistrictAt(midX, midY);
   const zone = getZoneInfo(midX, midY);
-  if (district === 'quarry' || district === 'wall') return chunk;
 
-  const isDowntown = district === 'downtown';
-  const isSuburb = district === 'suburb_west' || district === 'suburb_east';
-  const isHighwayStrip = district === 'highway_strip';
-  const isRural = district === 'rural' || district === 'wilderness';
+  if (district !== 'quarry' && district !== 'wall') {
+    const isDowntown = district === 'downtown';
+    const isSuburb = district === 'suburb_west' || district === 'suburb_east';
+    const isHighwayStrip = district === 'highway_strip';
+    const isRural = district === 'rural' || district === 'wilderness';
 
-  const seed = hash2d(cx, cy);
-  const spawnThreshold = isDowntown
-    ? 0.12
-    : isSuburb
-    ? 0.16
-    : isHighwayStrip
-    ? 0.25
-    : district === 'rural'
-    ? 0.68
-    : 0.84;
+    const seed = hash2d(cx, cy);
+    const spawnThreshold = isDowntown
+      ? 0.05
+      : isSuburb
+      ? 0.08
+      : isHighwayStrip
+      ? 0.15
+      : district === 'rural'
+      ? 0.45
+      : 0.72;
 
-  if (seed > spawnThreshold) {
-    let targetRoadY = null;
-    for (let y = baseY + 12; y <= baseY + 29; y++) {
-      if (getRoadType(baseX + 16, y) === 3) {
-        targetRoadY = y;
-        break;
-      }
-    }
-
-    const lots = [];
-    if (targetRoadY !== null && !isRural) {
-      const by = targetRoadY - 12;
-      if (by >= baseY + 1) {
-        lots.push({ bx: baseX + 3, by, bw: 9, bh: 8, s: hash2d(cx * 5, cy * 3) });
-        if (hash2d(cx + 9, cy + 2) > 0.28) {
-          lots.push({ bx: baseX + 17, by, bw: 9, bh: 8, s: hash2d(cx * 11, cy * 7) });
+    if (seed > spawnThreshold) {
+      let targetRoadY = null;
+      for (let y = baseY + 11; y <= baseY + 29; y++) {
+        if (getRoadType(baseX + 16, y) === 3) {
+          targetRoadY = y;
+          break;
         }
       }
-    } else if (!isRural && hash2d(cx * 13, cy * 17) > 0.35) {
-      lots.push({ bx: baseX + 5, by: baseY + 6, bw: 9, bh: 8, s: hash2d(cx * 7, cy * 13) });
-      if (isDowntown) {
-        lots.push({ bx: baseX + 18, by: baseY + 16, bw: 9, bh: 8, s: hash2d(cx * 19, cy * 23) });
-      }
-    } else if (isRural) {
-      const bx = baseX + 7 + Math.floor(hash2d(cx + 3, cy) * 8);
-      const by = baseY + 7 + Math.floor(hash2d(cx, cy + 5) * 8);
-      lots.push({ bx, by, bw: 9, bh: 8, s: hash2d(cx * 17, cy * 19), rural: true });
-    }
 
-    lots.forEach((lot, idx) => {
-      if (!isLotClear(lot.bx, lot.by, lot.bw, lot.bh, 2)) return;
-
-      const isCommercial =
-        !lot.rural &&
-        (isHighwayStrip || (isDowntown && lot.s > 0.38));
-
-      const doorRoll = hash2d(cx + idx * 17, cy + 29);
-      const doorState =
-        zone.ring === 1
-          ? doorRoll > 0.62
-            ? 'locked'
-            : 'unlocked'
-          : zone.ring === 2
-          ? doorRoll > 0.50
-            ? 'barricaded'
-            : 'locked'
-          : 'barricaded';
-
-      const commNames = [
-        'Corner Market',
-        'Piedmont Pharmacy',
-        'Elm St Cafe',
-        'Auto Parts Depot',
-        'Rockmart Laundromat',
-        'Feed & Seed Store',
-        'US-278 Truck Stop',
-        'Hardware & Supply'
-      ];
-      const houseNames = [
-        'Craftsman Home',
-        'Georgia Brick Ranch',
-        'Oakridge Bungalow',
-        'Colonial Two-Story',
-        'Wrap-Porch Cottage',
-        'Suburban Split-Level'
-      ];
-      const ruralNames = [
-        'Valley Farmhouse',
-        'Cedar Timber Barn',
-        'Pine Woods Cabin',
-        'Creekside Homestead'
-      ];
-
-      const namePool = lot.rural
-        ? ruralNames
-        : isCommercial
-        ? commNames
-        : houseNames;
-      const bName = namePool[Math.floor(hash2d(cx * 3 + idx, cy * 7) * namePool.length)];
-      const bId = `b-${cx}-${cy}-${idx}`;
-
-      const spot = isCommercial
-        ? buildCommercialBlueprint(chunk, bId, bName, lot.bx, lot.by, lot.bw, lot.bh, doorState, lot.s)
-        : buildHouseBlueprint(chunk, bId, bName, lot.bx, lot.by, lot.bw, lot.bh, doorState, lot.s, lot.rural);
-
-      if (idx === 0) {
-        const crateRoll = hash2d(cx + 51, cy + 59);
-        const supplyItem =
-          zone.ring === 3
-            ? { name: 'Prototype Convoy Core', type: 'heavy', value: 6, color: '#e879f9' }
-            : crateRoll > 0.66 || isHighwayStrip
-            ? { name: 'Heavy Supply Crate', type: 'heavy', value: 4, color: '#fb923c' }
-            : zone.ring === 1
-            ? { name: 'Scrap Plating', type: 'convoy', value: 1, color: '#22d3ee' }
-            : { name: 'Tanker Fuel Drum', type: 'convoy', value: 2, color: '#f59e0b' };
-
-        addChunkLoot(chunk, `loot-main-${cx}-${cy}`, spot.lootX, spot.lootY, supplyItem);
+      const lots = [];
+      if (targetRoadY !== null && !isRural) {
+        const by = targetRoadY - 12;
+        if (by >= baseY + 1) {
+          lots.push({ bx: baseX + 3, by, bw: 9, bh: 8, s: hash2d(cx * 5, cy * 3) });
+          lots.push({ bx: baseX + 17, by, bw: 9, bh: 8, s: hash2d(cx * 11, cy * 7) });
+        }
+      } else if (!isRural) {
+        lots.push({ bx: baseX + 4, by: baseY + 4, bw: 9, bh: 8, s: hash2d(cx * 7, cy * 13) });
+        lots.push({ bx: baseX + 18, by: baseY + 17, bw: 9, bh: 8, s: hash2d(cx * 19, cy * 23) });
       } else {
-        const secRoll = hash2d(cx + 41, cy + 43);
-        const secItem =
-          secRoll < 0.25
-            ? { name: 'Lockpick Set', type: 'tool', toolId: 'lockpick', color: '#fbbf24' }
-            : secRoll < 0.65
-            ? { name: 'MRE Pack', type: 'food', hunger: 55, hp: 10, color: '#eab308' }
-            : { name: 'Bandage', type: 'med', hunger: 0, hp: 40, color: '#f8fafc' };
-        addChunkLoot(chunk, `loot-sec-${cx}-${cy}-${idx}`, spot.lootX, spot.lootY, secItem);
+        const bx = baseX + 6 + Math.floor(hash2d(cx + 3, cy) * 9);
+        const by = baseY + 6 + Math.floor(hash2d(cx, cy + 5) * 9);
+        lots.push({ bx, by, bw: 9, bh: 8, s: hash2d(cx * 17, cy * 19), rural: true });
       }
 
-      addChunkZombie(
-        chunk,
-        `z-in-${cx}-${cy}-${idx}`,
-        spot.zX,
-        spot.zY,
-        zone.ring,
-        zone.ring === 3 && idx === 0
-      );
-    });
-  }
+      lots.forEach((lot, idx) => {
+        if (!isLotClear(lot.bx, lot.by, lot.bw, lot.bh, 2)) return;
 
-  const outdoorCount = isDowntown ? 3 : isSuburb || isHighwayStrip ? 2 : 1;
-  for (let i = 0; i < outdoorCount; i++) {
-    const zx = baseX + 3 + Math.floor(hash2d(cx + i * 13, cy + 5) * 26) + 0.5;
-    const zy = baseY + 3 + Math.floor(hash2d(cx + 7, cy + i * 19) * 26) + 0.5;
-    const tx = Math.floor(zx - baseX);
-    const ty = Math.floor(zy - baseY);
-    if (tiles[ty * CHUNK_SIZE + tx] !== 2 && tiles[ty * CHUNK_SIZE + tx] !== 4 && !isInsideQuarryHub(zx, zy)) {
-      addChunkZombie(chunk, `z-out-${cx}-${cy}-${i}`, zx, zy, zone.ring, false);
+        const isCommercial =
+          !lot.rural &&
+          (isHighwayStrip || (isDowntown && lot.s > 0.35));
+
+        const doorRoll = hash2d(cx + idx * 17, cy + 29);
+        const doorState =
+          zone.ring === 1
+            ? doorRoll > 0.62
+              ? 'locked'
+              : 'unlocked'
+            : zone.ring === 2
+            ? doorRoll > 0.50
+              ? 'barricaded'
+              : 'locked'
+            : 'barricaded';
+
+        const commNames = [
+          'Corner Market',
+          'Piedmont Pharmacy',
+          'Elm St Cafe',
+          'Auto Parts Depot',
+          'Rockmart Laundromat',
+          'Feed & Seed Store',
+          'US-278 Truck Stop',
+          'Hardware & Supply'
+        ];
+        const houseNames = [
+          'Craftsman Home',
+          'Georgia Brick Ranch',
+          'Oakridge Bungalow',
+          'Colonial Two-Story',
+          'Wrap-Porch Cottage',
+          'Suburban Split-Level'
+        ];
+        const ruralNames = [
+          'Valley Farmhouse',
+          'Cedar Timber Barn',
+          'Pine Woods Cabin',
+          'Creekside Homestead'
+        ];
+
+        const namePool = lot.rural
+          ? ruralNames
+          : isCommercial
+          ? commNames
+          : houseNames;
+        const bName = namePool[Math.floor(hash2d(cx * 3 + idx, cy * 7) * namePool.length)];
+        const bId = `b-${cx}-${cy}-${idx}`;
+
+        const spot = isCommercial
+          ? buildCommercialBlueprint(chunk, bId, bName, lot.bx, lot.by, lot.bw, lot.bh, doorState, lot.s)
+          : buildHouseBlueprint(chunk, bId, bName, lot.bx, lot.by, lot.bw, lot.bh, doorState, lot.s, lot.rural);
+
+        if (idx === 0) {
+          const crateRoll = hash2d(cx + 51, cy + 59);
+          const supplyItem =
+            zone.ring === 3
+              ? { name: 'Prototype Convoy Core', type: 'heavy', value: 6, color: '#e879f9' }
+              : crateRoll > 0.66 || isHighwayStrip
+              ? { name: 'Heavy Supply Crate', type: 'heavy', value: 4, color: '#fb923c' }
+              : zone.ring === 1
+              ? { name: 'Scrap Plating', type: 'convoy', value: 1, color: '#22d3ee' }
+              : { name: 'Tanker Fuel Drum', type: 'convoy', value: 2, color: '#f59e0b' };
+
+          addChunkLoot(chunk, `loot-main-${cx}-${cy}`, spot.lootX, spot.lootY, supplyItem);
+        } else {
+          const secRoll = hash2d(cx + 41, cy + 43);
+          const secItem =
+            secRoll < 0.25
+              ? { name: 'Lockpick Set', type: 'tool', toolId: 'lockpick', color: '#fbbf24' }
+              : secRoll < 0.65
+              ? { name: 'MRE Pack', type: 'food', hunger: 55, hp: 10, color: '#eab308' }
+              : { name: 'Bandage', type: 'med', hunger: 0, hp: 40, color: '#f8fafc' };
+          addChunkLoot(chunk, `loot-sec-${cx}-${cy}-${idx}`, spot.lootX, spot.lootY, secItem);
+        }
+
+        addChunkZombie(
+          chunk,
+          `z-in-${cx}-${cy}-${idx}`,
+          spot.zX,
+          spot.zY,
+          zone.ring,
+          zone.ring === 3 && idx === 0
+        );
+      });
+    }
+
+    const outdoorCount = isDowntown ? 3 : isSuburb || isHighwayStrip ? 2 : 1;
+    for (let i = 0; i < outdoorCount; i++) {
+      const zx = baseX + 3 + Math.floor(hash2d(cx + i * 13, cy + 5) * 26) + 0.5;
+      const zy = baseY + 3 + Math.floor(hash2d(cx + 7, cy + i * 19) * 26) + 0.5;
+      const tx = Math.floor(zx - baseX);
+      const ty = Math.floor(zy - baseY);
+      if (tiles[ty * CHUNK_SIZE + tx] !== 2 && tiles[ty * CHUNK_SIZE + tx] !== 4 && !isInsideQuarryHub(zx, zy)) {
+        addChunkZombie(chunk, `z-out-${cx}-${cy}-${i}`, zx, zy, zone.ring, false);
+      }
     }
   }
 
+  populateEnvironmentProps(chunk, district);
   return chunk;
 }
 
