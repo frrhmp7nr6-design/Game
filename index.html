@@ -5,36 +5,67 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <title>IsoWalk Survival</title>
+  <title>IsoWalk: Act 1</title>
   <link rel="manifest" href="./manifest.json" />
   <link rel="stylesheet" href="./css/style.css" />
 </head>
 <body>
+  <!-- Archetype Selection Overlay -->
+  <div id="archetype-modal">
+    <div class="modal-card">
+      <h1>SELECT SURVIVOR ARCHETYPE</h1>
+      <p>Deploy into the 128×128 Quarry Camp Safe Hub and supply the Iron Convoy across a 1024×1024 world.</p>
+      <div class="archetype-grid">
+        <button class="arch-btn" data-arch="bruiser">
+          <span class="arch-title">🛡️ THE BRUISER</span>
+          <span class="arch-sub">140 HP • Starts with Crowbar • +35% Melee DMG &amp; Knockback</span>
+        </button>
+        <button class="arch-btn" data-arch="medic">
+          <span class="arch-title">🩺 THE MEDIC</span>
+          <span class="arch-sub">105 HP • Starts with 2x Bandages • Passive Regen Aura</span>
+        </button>
+        <button class="arch-btn" data-arch="scavenger">
+          <span class="arch-title">🗝️ THE SCAVENGER</span>
+          <span class="arch-sub">100 HP • 10 Bag Slots • Unlimited Silent Lockpicking</span>
+        </button>
+        <button class="arch-btn" data-arch="marksman">
+          <span class="arch-title">🎯 THE MARKSMAN</span>
+          <span class="arch-sub">95 HP • Starts with 9mm Pistol • +25% Ranged Reach &amp; Crit</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Top HUD -->
   <div id="hud">
-    <div class="stats-panel">
-      <div class="bar-row">
-        <div class="bar-label"><span>HEALTH</span><span id="hp-val">100%</span></div>
-        <div class="bar-track"><div id="hp-fill" class="bar-fill"></div></div>
+    <div class="hud-left">
+      <div class="stats-panel">
+        <div class="bar-row">
+          <div class="bar-label"><span id="arch-badge">SURVIVOR</span><span id="hp-val">100/100</span></div>
+          <div class="bar-track"><div id="hp-fill" class="bar-fill"></div></div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label"><span>STAMINA</span><span id="stam-val">100%</span></div>
+          <div class="bar-track"><div id="stam-fill" class="bar-fill"></div></div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label"><span>FULLNESS</span><span id="food-val">85%</span></div>
+          <div class="bar-track"><div id="food-fill" class="bar-fill"></div></div>
+        </div>
       </div>
-      <div class="bar-row">
-        <div class="bar-label"><span>STAMINA</span><span id="stam-val">100%</span></div>
-        <div class="bar-track"><div id="stam-fill" class="bar-fill"></div></div>
-      </div>
-      <div class="bar-row">
-        <div class="bar-label"><span>FULLNESS</span><span id="food-val">85%</span></div>
-        <div class="bar-track"><div id="food-fill" class="bar-fill"></div></div>
-      </div>
+
+      <canvas id="minimap" width="136" height="136"></canvas>
     </div>
 
     <div id="mission-box" class="mission-panel">
-      <div class="mission-title">📡 EVAC RADIO: <span id="mission-pct">0/4 INSTALLED</span></div>
-      <div id="mission-sub" class="mission-sub">Follow cyan compass arrow to scavenge Radio Parts</div>
+      <div class="mission-title">🚛 IRON CONVOY: <span id="mission-pct">0 / 12 SUPPLIES</span></div>
+      <div id="mission-sub" class="mission-sub">Haul Scrap Plating, Fuel &amp; Military Armor to Quarry Garage</div>
       <div class="bar-track" style="margin-top:5px;"><div id="mission-fill" class="bar-fill"></div></div>
     </div>
 
     <div class="top-right">
       <button id="rotate-btn" class="hud-btn" title="Rotate Camera 90°">🔄 CAM</button>
-      <div class="pill" id="coords">Fists • 8,8</div>
+      <div class="pill" id="coords">Quarry Hub • 512, 512</div>
       <button id="bag-toggle" class="hud-btn">🎒 BAG (<span id="bag-count">0/8</span>)</button>
     </div>
   </div>
@@ -51,15 +82,15 @@
 
   <div id="actions">
     <div id="door-btn" class="action-btn">DOOR</div>
-    <div id="repair-btn" class="action-btn">REPAIR<br/>TOWER</div>
+    <div id="repair-btn" class="action-btn">LOAD<br/>CONVOY</div>
     <div id="grab-btn" class="action-btn">GRAB</div>
     <div id="sprint-btn" class="action-btn">SPRINT</div>
   </div>
 
   <div id="gameover">
     <h1>YOU DIED</h1>
-    <p>Keep your fullness up and clear zombies around buildings.</p>
-    <button onclick="location.reload()">Play Again</button>
+    <p>Keep your fullness up and watch your threat ring level.</p>
+    <button onclick="location.reload()">Respawn at Quarry</button>
   </div>
 
   <canvas id="game"></canvas>
