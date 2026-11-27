@@ -1,7 +1,6 @@
 const ATLAS_MAP_SIZE = 1024;
 
 // Tightened Rockmart, GA bounding box centered on Rockmart Slate Corp Quarry, Downtown & Euharlee Creek
-// (~1.85 km x 2.0 km -> ~1.8m per tile so real houses & streets match player scale)
 const DEFAULT_BOUNDS = {
   minLat: 33.9935,
   maxLat: 34.0115,
@@ -11,7 +10,7 @@ const DEFAULT_BOUNDS = {
 
 const DB_NAME = 'isowalk-osm-atlas';
 const STORE_NAME = 'sectors';
-const SECTOR_KEY = 'rockmart-ga-v2';
+const SECTOR_KEY = 'rockmart-ga-v3';
 
 const OVERPASS_MIRRORS = [
   'https://overpass-api.de/api/interpreter',
@@ -25,6 +24,7 @@ export const atlasState = {
   loaded: false,
   status: 'loading',
   source: 'procedural',
+  error: '',
   features: [],
   quarryPolygons: []
 };
@@ -164,31 +164,16 @@ function ingestFeatureCollection(gj) {
 
 async function fetchWithMirrors(bounds) {
   const { minLat, minLon, maxLat, maxLon } = bounds;
-  const query = `
-    [out:json][timeout:35];
-    (
-      way["highway"](${minLat},${minLon},${maxLat},${maxLon});
-      way["building"](${minLat},${minLon},${maxLat},${maxLon});
-      way["waterway"](${minLat},${minLon},${maxLat},${maxLon});
-      way["natural"="water"](${minLat},${minLon},${maxLat},${maxLon});
-      way["landuse"="quarry"](${minLat},${minLon},${maxLat},${maxLon});
-    );
-    out body;
-    >;
-    out skel qt;
-  `;
+  // Compact single-pass regex query using GET (bypasses Safari CORS preflight & runs <2s)
+  const ql = `[out:json][timeout:25];way(${minLat},${minLon},${maxLat},${maxLon})[~"^(highway|building|waterway|landuse|natural)$"~"."];(._;>;);out body;`;
 
   let lastErr = null;
-  for (const url of OVERPASS_MIRRORS) {
+  for (const base of OVERPASS_MIRRORS) {
     try {
+      const url = `${base}?data=${encodeURIComponent(ql)}`;
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 18000);
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-        body: `data=${encodeURIComponent(query)}`,
-        signal: controller.signal
-      });
+      const timer = setTimeout(() => controller.abort(), 15000);
+      const resp = await fetch(url, { signal: controller.signal });
       clearTimeout(timer);
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const raw = await resp.json();
@@ -201,32 +186,24 @@ async function fetchWithMirrors(bounds) {
       lastErr = err;
     }
   }
-  throw lastErr || new Error('All Overpass mirrors busy');
+  throw lastErr || new Error('Overpass unreachable');
 }
 
 export async function initAtlas(onReady, forceRefresh = false) {
   atlasState.status = 'loading';
 
   if (!forceRefresh) {
-    // 1. Check static repo manifest if present
+    // 1. Check bundled static repo file ./atlas/rockmart.json if present
     try {
-      const res = await fetch('./atlas/manifest.json');
+      const res = await fetch('./atlas/rockmart.json');
       if (res.ok) {
-        const manifest = await res.json();
-        if (manifest.origin) atlasBounds = { ...atlasBounds, ...manifest.origin };
-        const merged = [];
-        for (const tile of manifest.tiles || []) {
-          const tRes = await fetch(`./atlas/${tile.file}`);
-          if (tRes.ok) {
-            const gj = await tRes.json();
-            merged.push(...(gj.features || []));
-          }
-        }
-        if (merged.length > 0) {
-          ingestFeatureCollection({ features: merged });
+        const gj = await res.json();
+        if (gj.features?.length > 0) {
+          atlasBounds = { ...DEFAULT_BOUNDS, ...(gj.bounds || {}) };
+          ingestFeatureCollection(gj);
           atlasState.loaded = true;
           atlasState.status = 'ready';
-          atlasState.source = 'static-atlas';
+          atlasState.source = 'static-json';
           if (onReady) onReady(atlasState);
           return true;
         }
@@ -248,7 +225,7 @@ export async function initAtlas(onReady, forceRefresh = false) {
     }
   }
 
-  // 3. Fetch live Rockmart, GA OSM geometry from Overpass mirrors & cache in IndexedDB
+  // 3. Fetch live Rockmart, GA OSM geometry via fast GET & cache in IndexedDB
   try {
     atlasBounds = { ...DEFAULT_BOUNDS };
     const gj = await fetchWithMirrors(DEFAULT_BOUNDS);
