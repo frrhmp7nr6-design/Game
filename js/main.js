@@ -1,28 +1,39 @@
 import {
   camera,
   rotateCamera,
-  doors,
-  worldLoot,
-  radioTower,
+  convoyGarage,
+  quarryCampfire,
   worldToScreen,
-  canWalkTo
+  canWalkTo,
+  getNearbyLootList
 } from './map.js';
+import {
+  getActiveChunks,
+  getZoneInfo,
+  openedDoors,
+  doorDamage
+} from './chunks.js';
 import { sticks, keys, sprintHeld, initInput } from './input.js';
 import {
   inventory,
+  applyArchetypeLoadout,
   initInventory,
-  grabLootAt,
-  installRadioPartsFromBag,
+  grabLootItem,
+  deliverConvoySupplies,
   hasLockpick,
   consumeLockpick,
   showToast
 } from './inventory.js';
-import { updateCombat, WEAPONS, fxList, spawnEvacHorde } from './combat.js';
-import { renderFrame } from './render.js';
+import { updateCombat, WEAPONS, fxList } from './combat.js';
+import { renderFrame, renderMinimap } from './render.js';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
+const miniCanvas = document.getElementById('minimap');
+const mctx = miniCanvas.getContext('2d');
 
+const archModal = document.getElementById('archetype-modal');
+const archBadge = document.getElementById('arch-badge');
 const hpFill = document.getElementById('hp-fill');
 const stamFill = document.getElementById('stam-fill');
 const foodFill = document.getElementById('food-fill');
@@ -46,13 +57,16 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
+// Spawn inside the 128x128 Quarry Camp Safe Hub near the Convoy Garage & Campfire
 const player = {
-  x: 7.5,
-  y: 7.5,
+  x: 510.5,
+  y: 510.5,
   radius: 0.28,
   angle: Math.PI / 4,
-  walkSpeed: 4.4,
-  sprintSpeed: 7.4,
+  walkSpeed: 4.5,
+  sprintSpeed: 7.6,
+  archetype: 'bruiser',
+  bagCapacity: 8,
   hp: 100,
   maxHp: 100,
   stamina: 100,
@@ -65,13 +79,26 @@ const player = {
   isSprinting: false,
   exhausted: false,
   dead: false,
-  won: false
+  started: false
 };
 
-let nearbyLootIndex = -1;
+let activeChunks = getActiveChunks(player.x, player.y, 1);
+let nearbyLoot = null;
 let nearbyDoor = null;
 
 const { toggleBag } = initInventory(player);
+
+// Wire up Archetype Picker buttons
+document.querySelectorAll('.arch-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const arch = btn.dataset.arch;
+    applyArchetypeLoadout(player, arch);
+    archBadge.textContent = arch.toUpperCase();
+    archModal.classList.add('hidden');
+    player.started = true;
+    showToast(`Deployed as ${arch.toUpperCase()} in Quarry Hub`);
+  });
+});
 
 function handleDoorAction() {
   if (!nearbyDoor || player.dead) return;
@@ -79,17 +106,18 @@ function handleDoorAction() {
 
   if (d.state === 'unlocked') {
     d.state = 'open';
+    openedDoors.add(d.key);
     showToast('Opened door');
     return;
   }
 
   if (d.state === 'open') {
-    // Only close if player isn't standing inside the doorway tile
     if (Math.floor(player.x) === d.x && Math.floor(player.y) === d.y) {
       showToast('Step out of doorway first');
       return;
     }
     d.state = 'unlocked';
+    openedDoors.delete(d.key);
     showToast('Closed door');
     return;
   }
@@ -98,10 +126,10 @@ function handleDoorAction() {
     if (hasLockpick()) {
       consumeLockpick(player);
       d.state = 'open';
+      openedDoors.add(d.key);
       showToast('🔓 Picked lock!');
       return;
     }
-    // Otherwise bash it down with equipped weapon
     smashDoor(d);
     return;
   }
@@ -123,8 +151,9 @@ function smashDoor(d) {
   }
 
   player.stamina = Math.max(0, player.stamina - 10);
-  const dmg = weapon.damage;
+  const dmg = player.archetype === 'bruiser' ? Math.round(weapon.damage * 1.35) : weapon.damage;
   d.hp = Math.max(0, d.hp - dmg);
+  doorDamage.set(d.key, d.hp);
 
   fxList.push({
     type: 'melee',
@@ -139,41 +168,35 @@ function smashDoor(d) {
 
   if (d.hp === 0) {
     d.state = 'open';
+    openedDoors.add(d.key);
     showToast('💥 Smashed door open!');
   } else {
     showToast(`Bashed door (${Math.ceil((d.hp / d.maxHp) * 100)}% left)`);
   }
 }
 
-function handleRepair() {
-  const distToTower = Math.hypot(radioTower.x - player.x, radioTower.y - player.y);
-  if (distToTower > 1.8 || radioTower.evacActive || radioTower.complete) return;
+function handleConvoyLoad() {
+  const distToGarage = Math.hypot(convoyGarage.x - player.x, convoyGarage.y - player.y);
+  if (distToGarage > 2.2) return;
 
-  const added = installRadioPartsFromBag(player);
+  const added = deliverConvoySupplies(player);
   if (added === 0) {
-    showToast('Bring Radio Parts from town to repair!');
+    showToast('Scavenge Scrap Plating, Fuel & Armor in Threat Rings!');
     return;
   }
 
-  const total = radioTower.installedParts.length;
-  showToast(`Installed ${added} part(s)! (${total}/${radioTower.requiredParts})`);
-
-  if (total >= radioTower.requiredParts) {
-    radioTower.evacActive = true;
-    spawnEvacHorde();
-    showToast('📡 SIGNAL SENT! Survive 30s until extraction!');
-  }
+  showToast(`🚛 Loaded +${added} Convoy Supplies! (${convoyGarage.points}/${convoyGarage.targetPoints})`);
 }
 
 initInput(canvas, player, {
   onGrab: () => {
-    if (grabLootAt(player, nearbyLootIndex)) {
-      nearbyLootIndex = -1;
+    if (grabLootItem(player, nearbyLoot, activeChunks)) {
+      nearbyLoot = null;
       grabBtn.classList.remove('visible');
     }
   },
   onDoor: handleDoorAction,
-  onRepair: handleRepair,
+  onRepair: handleConvoyLoad,
   onRotate: () => {
     const rot = rotateCamera();
     showToast(`Camera: ${rot * 90}°`);
@@ -182,27 +205,30 @@ initInput(canvas, player, {
 });
 
 function getObjectiveTarget() {
-  const carryingPart = inventory.some((i) => i.type === 'part');
-  const remainingWorldParts = worldLoot.filter((i) => i.type === 'part');
-
-  if (carryingPart || remainingWorldParts.length === 0 || radioTower.evacActive) {
-    return { x: radioTower.x, y: radioTower.y, isTower: true };
+  const carryingConvoy = inventory.some((i) => i.type === 'convoy');
+  if (carryingConvoy) {
+    return { x: convoyGarage.x, y: convoyGarage.y, isGarage: true };
   }
 
+  const lootList = getNearbyLootList(activeChunks);
   let closest = null;
   let bestDist = Infinity;
-  for (const part of remainingWorldParts) {
-    const d = Math.hypot(part.x - player.x, part.y - player.y);
-    if (d < bestDist) {
-      bestDist = d;
-      closest = { x: part.x, y: part.y, isTower: false };
+  for (const item of lootList) {
+    if (item.type === 'convoy') {
+      const d = Math.hypot(item.x - player.x, item.y - player.y);
+      if (d < bestDist) {
+        bestDist = d;
+        closest = { x: item.x, y: item.y, isGarage: false };
+      }
     }
   }
   return closest;
 }
 
 function update(dt) {
-  if (player.dead || player.won) return;
+  if (!player.started || player.dead) return;
+
+  activeChunks = getActiveChunks(player.x, player.y, 1);
 
   let sx = sticks.move.dx;
   let sy = sticks.move.dy;
@@ -225,16 +251,23 @@ function update(dt) {
     if (player.stamina >= 25) player.exhausted = false;
   }
 
-  const hungerDrain = player.isSprinting ? 1.0 : isMoving ? 0.5 : 0.25;
+  const hungerDrain = player.isSprinting ? 0.95 : isMoving ? 0.45 : 0.2;
   player.hunger = Math.max(0, player.hunger - hungerDrain * dt);
+
+  // Campfire healing inside Quarry Hub + Medic passive triage regen
+  const nearCampfire = Math.hypot(quarryCampfire.x - player.x, quarryCampfire.y - player.y) < 3.2;
+  if (nearCampfire && player.hp < player.maxHp) {
+    player.hp = Math.min(player.maxHp, player.hp + 4.5 * dt);
+  } else if (player.archetype === 'medic' && player.hp < player.maxHp && player.hunger > 25) {
+    player.hp = Math.min(player.maxHp, player.hp + 1.5 * dt);
+  }
 
   if (player.hunger === 0) {
     player.hp = Math.max(0, player.hp - 0.65 * dt);
   } else if (player.hunger > 65 && player.hp < player.maxHp) {
-    player.hp = Math.min(player.maxHp, player.hp + 1.2 * dt);
+    player.hp = Math.min(player.maxHp, player.hp + 1.1 * dt);
   }
 
-  // Movement adjusted for current 90° camera rotation
   if (isMoving) {
     const speed = player.isSprinting ? player.sprintSpeed : player.walkSpeed;
     const rx = sx + sy * 2;
@@ -243,7 +276,6 @@ function update(dt) {
     const rvx = (rx / len) * speed * dt;
     const rvy = (ry / len) * speed * dt;
 
-    // Inverse-rotate screen movement vector back to world coordinates
     let vx = rvx;
     let vy = rvy;
     if (camera.rotation === 1) {
@@ -257,8 +289,8 @@ function update(dt) {
       vy = rvx;
     }
 
-    if (canWalkTo(player.x + vx, player.y, player.radius)) player.x += vx;
-    if (canWalkTo(player.x, player.y + vy, player.radius)) player.y += vy;
+    if (canWalkTo(player.x + vx, player.y, player.radius, activeChunks)) player.x += vx;
+    if (canWalkTo(player.x, player.y + vy, player.radius, activeChunks)) player.y += vy;
 
     if (Math.hypot(sticks.look.dx, sticks.look.dy) <= 0.15 && sticks.move.id !== null) {
       const screenMove = worldToScreen(player.x + vx, player.y + vy, 0, 0);
@@ -271,55 +303,40 @@ function update(dt) {
     player.angle = Math.atan2(sticks.look.dy, sticks.look.dx);
   }
 
-  updateCombat(dt, player);
+  updateCombat(dt, player, activeChunks);
 
   if (player.hp <= 0) {
     player.dead = true;
-    gameOverEl.querySelector('h1').style.color = '#ef4444';
     gameOverEl.querySelector('h1').textContent = player.hunger === 0 ? 'YOU STARVED' : 'YOU DIED';
     gameOverEl.querySelector('p').textContent =
       player.hunger === 0
-        ? 'Open your backpack to eat stored food before fullness hits 0%.'
-        : 'Keep zombies inside your vision cone so your weapon auto-attacks.';
+        ? 'Eat stored rations from your backpack before fullness hits 0%.'
+        : 'Return to the Quarry Campfire to heal up between Threat Ring runs.';
     gameOverEl.classList.add('show');
     return;
   }
 
-  if (radioTower.evacActive && !radioTower.complete) {
-    radioTower.evacTimer = Math.max(0, radioTower.evacTimer - dt);
-    missionPctEl.textContent = `EVAC IN ${Math.ceil(radioTower.evacTimer)}s`;
-    missionSubEl.textContent = 'Defend the SE Compound until the chopper lands!';
-    missionFillEl.style.width = `${((30 - radioTower.evacTimer) / 30) * 100}%`;
+  // Iron Convoy HUD
+  const inBagPoints = inventory
+    .filter((i) => i.type === 'convoy')
+    .reduce((sum, i) => sum + (i.value || 1), 0);
+  missionPctEl.textContent = `${convoyGarage.points} / ${convoyGarage.targetPoints} SUPPLIES`;
+  missionSubEl.textContent =
+    inBagPoints > 0
+      ? `Carrying +${inBagPoints} supplies — follow green arrow to Quarry Garage!`
+      : 'Explore Threat Rings 1–3 for Scrap Plating, Fuel & Military Armor';
+  missionFillEl.style.width = `${(convoyGarage.points / convoyGarage.targetPoints) * 100}%`;
 
-    if (radioTower.evacTimer === 0) {
-      radioTower.complete = true;
-      player.won = true;
-      gameOverEl.querySelector('h1').style.color = '#4ade80';
-      gameOverEl.querySelector('h1').textContent = '🚁 EXTRACTED!';
-      gameOverEl.querySelector('p').textContent =
-        'You repaired the Evac Radio Tower and survived the horde.';
-      gameOverEl.classList.add('show');
-      return;
-    }
-  } else {
-    const installed = radioTower.installedParts.length;
-    const inBag = inventory.filter((i) => i.type === 'part').length;
-    missionPctEl.textContent = `${installed}/${radioTower.requiredParts} INSTALLED`;
-    missionSubEl.textContent =
-      inBag > 0
-        ? `Carrying ${inBag} part(s) — follow green arrow to SE Tower!`
-        : 'Follow cyan compass arrow to scavenge Radio Parts';
-    missionFillEl.style.width = `${(installed / radioTower.requiredParts) * 100}%`;
-  }
-
-  // Proximity check for Doors
+  // Proximity check for Doors across active chunks
   nearbyDoor = null;
   let bestDoorDist = 1.45;
-  for (const d of doors) {
-    const dist = Math.hypot(d.x + 0.5 - player.x, d.y + 0.5 - player.y);
-    if (dist < bestDoorDist) {
-      bestDoorDist = dist;
-      nearbyDoor = d;
+  for (const c of activeChunks) {
+    for (const d of c.doors) {
+      const dist = Math.hypot(d.x + 0.5 - player.x, d.y + 0.5 - player.y);
+      if (dist < bestDoorDist) {
+        bestDoorDist = dist;
+        nearbyDoor = d;
+      }
     }
   }
 
@@ -337,42 +354,45 @@ function update(dt) {
     doorBtn.classList.remove('visible');
   }
 
-  // Proximity check for Radio Tower repair
-  const distToTower = Math.hypot(radioTower.x - player.x, radioTower.y - player.y);
-  const hasPartInBag = inventory.some((i) => i.type === 'part');
-  if (distToTower <= 1.8 && hasPartInBag && !radioTower.evacActive) {
+  // Proximity check for Convoy Garage delivery
+  const distToGarage = Math.hypot(convoyGarage.x - player.x, convoyGarage.y - player.y);
+  if (distToGarage <= 2.2 && inBagPoints > 0) {
     repairBtn.classList.add('visible');
   } else {
     repairBtn.classList.remove('visible');
   }
 
-  // Proximity check for loot
-  nearbyLootIndex = -1;
-  for (let i = 0; i < worldLoot.length; i++) {
-    if (Math.hypot(worldLoot[i].x - player.x, worldLoot[i].y - player.y) < 1.15) {
-      nearbyLootIndex = i;
-      break;
+  // Proximity check for Loot
+  nearbyLoot = null;
+  let bestLootDist = 1.15;
+  for (const item of getNearbyLootList(activeChunks)) {
+    const d = Math.hypot(item.x - player.x, item.y - player.y);
+    if (d < bestLootDist) {
+      bestLootDist = d;
+      nearbyLoot = item;
     }
   }
 
-  if (nearbyLootIndex !== -1) {
-    grabBtn.innerHTML = `GRAB<br/><span style="font-size:10px;font-weight:500;">${worldLoot[nearbyLootIndex].name}</span>`;
+  if (nearbyLoot) {
+    grabBtn.innerHTML = `GRAB<br/><span style="font-size:10px;font-weight:500;">${nearbyLoot.name}</span>`;
     grabBtn.classList.add('visible');
   } else {
     grabBtn.classList.remove('visible');
   }
 
-  const wName = WEAPONS[player.equippedWeapon]?.name || 'Fists';
-  hpFill.style.width = `${player.hp}%`;
+  // Top HUD & Zone Readout
+  const zone = getZoneInfo(player.x, player.y);
+  hpFill.style.width = `${(player.hp / player.maxHp) * 100}%`;
   stamFill.style.width = `${player.stamina}%`;
   stamFill.style.background = player.exhausted ? '#94a3b8' : '#38bdf8';
   foodFill.style.width = `${player.hunger}%`;
   foodFill.style.background = player.hunger < 25 ? '#ef4444' : '#f59e0b';
 
-  hpVal.textContent = `${Math.ceil(player.hp)}%`;
+  hpVal.textContent = `${Math.ceil(player.hp)}/${player.maxHp}`;
   stamVal.textContent = `${Math.ceil(player.stamina)}%`;
   foodVal.textContent = `${Math.ceil(player.hunger)}%`;
-  coordsEl.textContent = `${wName} • ${player.x.toFixed(0)},${player.y.toFixed(0)}`;
+  coordsEl.style.color = zone.color;
+  coordsEl.textContent = `${zone.name} • ${Math.floor(player.x)},${Math.floor(player.y)}`;
 }
 
 let lastTime = performance.now();
@@ -381,7 +401,8 @@ function loop(now) {
   lastTime = now;
 
   update(dt);
-  renderFrame(ctx, player, nearbyLootIndex, nearbyDoor, getObjectiveTarget());
+  renderFrame(ctx, player, activeChunks, nearbyLoot, nearbyDoor, getObjectiveTarget());
+  renderMinimap(mctx, player, activeChunks);
 
   requestAnimationFrame(loop);
 }
