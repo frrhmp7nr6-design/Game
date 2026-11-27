@@ -356,6 +356,196 @@ export function stampCompoundBuilding(chunk, config) {
   });
 }
 
+// Rasterizes an arbitrary angled/L-shaped OSM polygon cellSet without bounding-box bloat
+export function stampPolygonBuilding(chunk, config) {
+  const {
+    id,
+    name,
+    category,
+    cellSet,
+    polygonPts,
+    doorState = 'unlocked',
+    seed = 0.5,
+    defaultRevealed = false
+  } = config;
+
+  if (!cellSet || cellSet.size === 0) return;
+
+  const baseX = chunk.cx * CHUNK_SIZE;
+  const baseY = chunk.cy * CHUNK_SIZE;
+
+  // Carve out any cells that overlap an existing street (tile === 3) so roads stay unobstructed
+  const cleanSet = new Set();
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (const key of cellSet) {
+    const [wx, wy] = key.split(',').map(Number);
+    const lx = wx - baseX;
+    const ly = wy - baseY;
+    if (lx >= 0 && lx < CHUNK_SIZE && ly >= 0 && ly < CHUNK_SIZE) {
+      if (chunk.tiles[ly * CHUNK_SIZE + lx] === 3) continue;
+    }
+    cleanSet.add(key);
+    if (wx < minX) minX = wx;
+    if (wy < minY) minY = wy;
+    if (wx > maxX) maxX = wx;
+    if (wy > maxY) maxY = wy;
+  }
+
+  if (cleanSet.size === 0) return;
+
+  const palette =
+    category === 'commercial'
+      ? COMMERCIAL_PALETTES[Math.floor(seed * 97) % COMMERCIAL_PALETTES.length]
+      : HOUSE_PALETTES[Math.floor(seed * 131) % HOUSE_PALETTES.length];
+
+  const roofStyle =
+    category === 'commercial'
+      ? 'parapet'
+      : seed > 0.45
+      ? 'gable'
+      : 'hip';
+
+  // Pick a perimeter cell bordering an open walkable tile (ideally sidewalk/street) for the front door
+  let doorCell = null;
+  let doorDir = { dx: 0, dy: 1 };
+  let bestScore = -1;
+
+  for (const key of cleanSet) {
+    const [wx, wy] = key.split(',').map(Number);
+    const neighbors = [
+      { dx: 0, dy: 1, x: wx, y: wy + 1 },
+      { dx: 0, dy: -1, x: wx, y: wy - 1 },
+      { dx: 1, dy: 0, x: wx + 1, y: wy },
+      { dx: -1, dy: 0, x: wx - 1, y: wy }
+    ];
+    for (const nb of neighbors) {
+      if (cleanSet.has(`${nb.x},${nb.y}`)) continue;
+      const lx = nb.x - baseX;
+      const ly = nb.y - baseY;
+      let score = 1;
+      if (lx >= 0 && lx < CHUNK_SIZE && ly >= 0 && ly < CHUNK_SIZE) {
+        const t = chunk.tiles[ly * CHUNK_SIZE + lx];
+        if (t === 2 || t === 4) continue; // Don't open into a wall or creek
+        if (t === 3) score = 4;
+        else if (t === 1) score = 3;
+        else if (t === 0 || t === 5) score = 2;
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        doorCell = { x: wx, y: wy };
+        doorDir = { dx: nb.dx, dy: nb.dy };
+      }
+    }
+  }
+
+  const wallTiles = [];
+
+  for (const key of cleanSet) {
+    const [wx, wy] = key.split(',').map(Number);
+    const hasN = cleanSet.has(`${wx},${wy - 1}`);
+    const hasS = cleanSet.has(`${wx},${wy + 1}`);
+    const hasW = cleanSet.has(`${wx - 1},${wy}`);
+    const hasE = cleanSet.has(`${wx + 1},${wy}`);
+
+    const isPerimeter = !hasN || !hasS || !hasW || !hasE;
+    const isDoor = doorCell && doorCell.x === wx && doorCell.y === wy;
+
+    const lx = wx - baseX;
+    const ly = wy - baseY;
+    const inChunk = lx >= 0 && lx < CHUNK_SIZE && ly >= 0 && ly < CHUNK_SIZE;
+
+    if (isDoor) {
+      if (inChunk) {
+        chunk.tiles[ly * CHUNK_SIZE + lx] = 1;
+        const doorKey = `${wx},${wy}`;
+        const isOpen = openedDoors.has(doorKey);
+        const maxHp = doorState === 'barricaded' ? 90 : 60;
+        chunk.doors.push({
+          key: doorKey,
+          x: wx,
+          y: wy,
+          buildingId: id,
+          state: isOpen ? 'open' : doorState,
+          hp: doorDamage.has(doorKey) ? doorDamage.get(doorKey) : maxHp,
+          maxHp
+        });
+
+        for (let step = 1; step <= 3; step++) {
+          const sx = lx + doorDir.dx * step;
+          const sy = ly + doorDir.dy * step;
+          if (sx >= 0 && sx < CHUNK_SIZE && sy >= 0 && sy < CHUNK_SIZE) {
+            if (chunk.tiles[sy * CHUNK_SIZE + sx] === 0) {
+              chunk.tiles[sy * CHUNK_SIZE + sx] = 1;
+            }
+          }
+        }
+      }
+    } else if (isPerimeter) {
+      if (inChunk) chunk.tiles[ly * CHUNK_SIZE + lx] = 2;
+      const isCorner = (!hasN && !hasW) || (!hasN && !hasE) || (!hasS && !hasW) || (!hasS && !hasE);
+      const hasWindow =
+        !isCorner &&
+        ((!hasS && (wx + wy) % 2 === 0) || (!hasE && (wx + wy) % 2 === 1));
+      const isBoarded = hasWindow && doorState === 'barricaded';
+      wallTiles.push({
+        x: wx,
+        y: wy,
+        faceSouth: !hasS,
+        faceEast: !hasE,
+        hasWindow,
+        isBoarded
+      });
+    } else {
+      if (inChunk) chunk.tiles[ly * CHUNK_SIZE + lx] = 1;
+    }
+  }
+
+  // Place interior props on guaranteed interior floor cells (not perimeter walls)
+  const props = [];
+  for (const key of cleanSet) {
+    const [wx, wy] = key.split(',').map(Number);
+    if (
+      cleanSet.has(`${wx},${wy - 1}`) &&
+      cleanSet.has(`${wx},${wy + 1}`) &&
+      cleanSet.has(`${wx - 1},${wy}`) &&
+      cleanSet.has(`${wx + 1},${wy}`) &&
+      cleanSet.has(`${wx + 2},${wy}`)
+    ) {
+      props.push({
+        x: wx,
+        y: wy,
+        w: 2,
+        d: 1,
+        kind: category === 'commercial' ? 'counter' : 'bed'
+      });
+      break;
+    }
+  }
+
+  chunk.buildings.push({
+    id,
+    name,
+    category,
+    rects: [{ x1: minX, y1: minY, x2: maxX, y2: maxY }],
+    polygonPts,
+    x1: minX,
+    y1: minY,
+    x2: maxX,
+    y2: maxY,
+    cellSet: cleanSet,
+    wallTiles,
+    props,
+    palette,
+    roofStyle,
+    porchRect: null,
+    defaultRevealed
+  });
+}
+
 function buildHouseBlueprint(chunk, id, name, bx, by, bw, bh, doorState, seed, isRural = false) {
   const shapeRoll = Math.floor(seed * 100) % 4;
   const rects = [{ x1: bx, y1: by, x2: bx + bw, y2: by + bh }];
@@ -466,7 +656,7 @@ function generateChunk(cx, cy) {
   const baseY = cy * CHUNK_SIZE;
 
   const usedOsmAtlas = atlasState.loaded
-    ? applyAtlasToChunk(chunk, baseX, baseY, CHUNK_SIZE, stampCompoundBuilding, isInsideQuarryHub)
+    ? applyAtlasToChunk(chunk, baseX, baseY, CHUNK_SIZE, stampPolygonBuilding, isInsideQuarryHub)
     : false;
 
   if (!usedOsmAtlas) {
@@ -524,8 +714,18 @@ function generateChunk(cx, cy) {
     const midY = baseY + 16;
     const zone = getZoneInfo(midX, midY);
     chunk.buildings.forEach((b, idx) => {
-      const lx = Math.floor((b.x1 + b.x2) / 2) + 0.5;
-      const ly = Math.floor((b.y1 + b.y2) / 2) + 0.5;
+      // Pick an actual interior cell of the polygon for loot & zombie spawns
+      let lx = Math.floor((b.x1 + b.x2) / 2) + 0.5;
+      let ly = Math.floor((b.y1 + b.y2) / 2) + 0.5;
+      if (b.cellSet && !b.cellSet.has(`${Math.floor(lx)},${Math.floor(ly)}`)) {
+        const firstKey = b.cellSet.values().next().value;
+        if (firstKey) {
+          const [fx, fy] = firstKey.split(',').map(Number);
+          lx = fx + 0.5;
+          ly = fy + 0.5;
+        }
+      }
+
       const crateRoll = hash2d(cx + idx * 19, cy + 59);
       const supplyItem =
         zone.ring === 3
@@ -535,7 +735,7 @@ function generateChunk(cx, cy) {
           : { name: 'Scrap Plating', type: 'convoy', value: 1, color: '#22d3ee' };
       addChunkLoot(chunk, `osm-loot-${cx}-${cy}-${idx}`, lx, ly, supplyItem);
       if (zone.ring > 0) {
-        addChunkZombie(chunk, `osm-z-${cx}-${cy}-${idx}`, b.x1 + 2.5, b.y1 + 2.5, zone.ring, false);
+        addChunkZombie(chunk, `osm-z-${cx}-${cy}-${idx}`, lx, ly, zone.ring, false);
       }
     });
   }
@@ -598,22 +798,24 @@ function generateChunk(cx, cy) {
     }
   }
 
-  // 2. Rockmart Police Precinct (guaranteed so Police Radios can be looted)
+  // 2. Rockmart Police Precinct (only stamp synthetic building when OSM doesn't supply one)
   if (cx === 17 && cy === 14) {
-    stampCompoundBuilding(chunk, {
-      id: 'rockmart-pd',
-      name: 'Rockmart Police Precinct',
-      category: 'commercial',
-      rects: [
-        { x1: 560, y1: 460, x2: 572, y2: 472 },
-        { x1: 568, y1: 472, x2: 572, y2: 476 }
-      ],
-      doorSpecs: [
-        { x: 565, y: 472, state: 'locked', dir: { dx: 0, dy: 1 } },
-        { x: 560, y: 466, state: 'barricaded', dir: { dx: -1, dy: 0 } }
-      ],
-      seed: 0.22
-    });
+    if (!usedOsmAtlas || !atlasState.policeLocation) {
+      stampCompoundBuilding(chunk, {
+        id: 'rockmart-pd',
+        name: 'Rockmart Police Precinct',
+        category: 'commercial',
+        rects: [
+          { x1: 560, y1: 460, x2: 572, y2: 472 },
+          { x1: 568, y1: 472, x2: 572, y2: 476 }
+        ],
+        doorSpecs: [
+          { x: 565, y: 472, state: 'locked', dir: { dx: 0, dy: 1 } },
+          { x: 560, y: 466, state: 'barricaded', dir: { dx: -1, dy: 0 } }
+        ],
+        seed: 0.22
+      });
+    }
 
     addChunkLoot(chunk, 'pd-radio-1', 564.5, 463.5, {
       name: 'Police Radio',
@@ -636,7 +838,7 @@ function generateChunk(cx, cy) {
 
     addChunkZombie(chunk, 'z-pd-1', 563.5, 468.5, 2, false);
     addChunkZombie(chunk, 'z-pd-2', 569.5, 465.5, 2, false);
-    return chunk;
+    if (!usedOsmAtlas) return chunk;
   }
 
   if (usedOsmAtlas) {
