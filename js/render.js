@@ -921,7 +921,7 @@ export function renderMinimap(mctx, player, activeChunks) {
   mctx.fillStyle = '#14221a';
   mctx.fillRect(0, 0, w, h);
 
-  // District shading (Downtown, West & East Suburbs, Highway Corridor)
+  // District shading (Downtown, West & East Suburbs)
   mctx.fillStyle = 'rgba(100, 116, 139, 0.28)';
   mctx.fillRect(760 * scale, 580 * scale, 500 * scale, 480 * scale);
   mctx.fillStyle = 'rgba(100, 116, 139, 0.16)';
@@ -959,14 +959,12 @@ export function renderMinimap(mctx, player, activeChunks) {
     if (wx === 0) mctx.moveTo(wx * scale, wy * scale);
     else mctx.lineTo(wx * scale, wy * scale);
   }
-  // Piedmont Blvd, S Marble St & Westfield Collector
   mctx.moveTo(1140 * scale, 512 * scale);
   mctx.lineTo(1140 * scale, 1060 * scale);
   mctx.moveTo(1024 * scale, 1435 * scale);
   mctx.lineTo(1094 * scale, 515 * scale);
   mctx.moveTo(540 * scale, 515 * scale);
   mctx.lineTo(540 * scale, 1120 * scale);
-  // Southern rural cross-road & bridge
   mctx.moveTo(1024 * scale, 1320 * scale);
   mctx.lineTo(1880 * scale, 1320 * scale);
   mctx.stroke();
