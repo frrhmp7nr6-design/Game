@@ -2,25 +2,24 @@ import {
   TILE_W,
   TILE_H,
   MAP_SIZE,
-  map,
-  doors,
-  buildings,
-  worldLoot,
-  radioTower,
+  CENTER,
+  convoyGarage,
+  quarryCampfire,
   rotateCoords,
   worldToScreen,
   getBuildingAt,
-  isBuildingRevealed
+  isBuildingRevealed,
+  getNearbyLootList
 } from './map.js';
+import { getTileAt } from './chunks.js';
 import { sticks, MAX_STICK_R } from './input.js';
-import { zombies, fxList, WEAPONS } from './combat.js';
+import { getActiveZombies, fxList, WEAPONS } from './combat.js';
 
 function drawExtrudedBlock(ctx, wx, wy, camX, camY, h, colors, alpha = 1) {
   const p = worldToScreen(wx, wy, camX, camY);
   ctx.save();
   ctx.globalAlpha = alpha;
 
-  // Left face
   ctx.fillStyle = colors.left;
   ctx.beginPath();
   ctx.moveTo(p.x - TILE_W / 2, p.y + TILE_H / 2);
@@ -30,7 +29,6 @@ function drawExtrudedBlock(ctx, wx, wy, camX, camY, h, colors, alpha = 1) {
   ctx.closePath();
   ctx.fill();
 
-  // Right face
   ctx.fillStyle = colors.right;
   ctx.beginPath();
   ctx.moveTo(p.x + TILE_W / 2, p.y + TILE_H / 2);
@@ -40,7 +38,6 @@ function drawExtrudedBlock(ctx, wx, wy, camX, camY, h, colors, alpha = 1) {
   ctx.closePath();
   ctx.fill();
 
-  // Top cap
   ctx.fillStyle = colors.top;
   ctx.beginPath();
   ctx.moveTo(p.x, p.y - h);
@@ -55,8 +52,12 @@ function drawExtrudedBlock(ctx, wx, wy, camX, camY, h, colors, alpha = 1) {
 
 function drawTile(ctx, wx, wy, camX, camY, type, isHiddenInterior) {
   const p = worldToScreen(wx, wy, camX, camY);
-
-  if (p.x < -TILE_W || p.x > window.innerWidth + TILE_W || p.y < -TILE_H * 2 || p.y > window.innerHeight + TILE_H) {
+  if (
+    p.x < -TILE_W ||
+    p.x > window.innerWidth + TILE_W ||
+    p.y < -TILE_H * 2 ||
+    p.y > window.innerHeight + TILE_H
+  ) {
     return;
   }
 
@@ -83,7 +84,6 @@ function drawTile(ctx, wx, wy, camX, camY, type, isHiddenInterior) {
 }
 
 function isWallOccludingUnit(wallScreen, unitScreen) {
-  // Wall is only in front of the unit if its base sits further down-screen than the unit's feet
   const dy = wallScreen.y - unitScreen.y;
   const dx = Math.abs(wallScreen.x - unitScreen.x);
   return dy > 4 && dy < 58 && dx < 46;
@@ -91,7 +91,12 @@ function isWallOccludingUnit(wallScreen, unitScreen) {
 
 function drawWall(ctx, wx, wy, camX, camY, player, visibleZombies) {
   const p = worldToScreen(wx, wy, camX, camY);
-  if (p.x < -TILE_W || p.x > window.innerWidth + TILE_W || p.y < -TILE_H * 2 || p.y > window.innerHeight + TILE_H) {
+  if (
+    p.x < -TILE_W ||
+    p.x > window.innerWidth + TILE_W ||
+    p.y < -TILE_H * 2 ||
+    p.y > window.innerHeight + TILE_H
+  ) {
     return;
   }
 
@@ -164,7 +169,12 @@ function drawRoofCap(ctx, building, camX, camY) {
   for (let y = building.y1; y <= building.y2; y++) {
     for (let x = building.x1; x <= building.x2; x++) {
       const p = worldToScreen(x, y, camX, camY);
-      if (p.x < -TILE_W || p.x > window.innerWidth + TILE_W || p.y < -TILE_H * 2 || p.y > window.innerHeight + TILE_H) {
+      if (
+        p.x < -TILE_W ||
+        p.x > window.innerWidth + TILE_W ||
+        p.y < -TILE_H * 2 ||
+        p.y > window.innerHeight + TILE_H
+      ) {
         continue;
       }
       const h = 42;
@@ -188,42 +198,58 @@ function drawRoofCap(ctx, building, camX, camY) {
   ctx.fillText(building.name.toUpperCase(), center.x, center.y - 42);
 }
 
-function drawRadioTower(ctx, camX, camY) {
-  const pos = worldToScreen(radioTower.x, radioTower.y, camX, camY);
+function drawQuarryLandmarks(ctx, camX, camY) {
+  // 1. Iron Convoy Armored Bus Chassis at (501.5, 501.5)
+  const gPos = worldToScreen(convoyGarage.x, convoyGarage.y, camX, camY);
+  if (gPos.x > -100 && gPos.x < window.innerWidth + 100) {
+    ctx.beginPath();
+    ctx.ellipse(gPos.x, gPos.y + 4, 34, 17, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = '#38bdf8';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
 
-  ctx.beginPath();
-  ctx.ellipse(pos.x, pos.y + 4, 28, 14, 0, 0, Math.PI * 2);
-  ctx.strokeStyle = radioTower.evacActive ? '#22c55e' : '#38bdf8';
-  ctx.lineWidth = 2.5;
-  ctx.stroke();
+    ctx.fillStyle = '#0369a1';
+    ctx.fillRect(gPos.x - 18, gPos.y - 22, 36, 20);
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(gPos.x - 18, gPos.y - 22, 36, 20);
 
-  ctx.fillStyle = '#0284c7';
-  ctx.fillRect(pos.x - 12, pos.y - 24, 24, 24);
-  ctx.strokeStyle = '#0f172a';
-  ctx.lineWidth = 2;
-  ctx.strokeRect(pos.x - 12, pos.y - 24, 24, 24);
+    ctx.font = 'bold 10px -apple-system, sans-serif';
+    ctx.fillStyle = '#bae6fd';
+    ctx.textAlign = 'center';
+    ctx.fillText('IRON CONVOY', gPos.x, gPos.y - 28);
+  }
 
-  ctx.strokeStyle = '#cbd5e1';
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(pos.x, pos.y - 24);
-  ctx.lineTo(pos.x, pos.y - 68);
-  ctx.stroke();
+  // 2. Central Quarry Campfire Healing Ring at (512.5, 512.5)
+  const fPos = worldToScreen(quarryCampfire.x, quarryCampfire.y, camX, camY);
+  if (fPos.x > -100 && fPos.x < window.innerWidth + 100) {
+    ctx.beginPath();
+    ctx.ellipse(fPos.x, fPos.y + 2, 42, 21, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(249, 115, 22, 0.12)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(251, 146, 60, 0.55)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
 
-  const pulse = Math.sin(performance.now() / 220) > 0;
-  ctx.fillStyle = radioTower.evacActive ? '#4ade80' : pulse ? '#ef4444' : '#7f1d1d';
-  ctx.beginPath();
-  ctx.arc(pos.x, pos.y - 70, 5, 0, Math.PI * 2);
-  ctx.fill();
+    const flicker = 5 + Math.sin(performance.now() / 110) * 2;
+    ctx.fillStyle = '#f97316';
+    ctx.beginPath();
+    ctx.arc(fPos.x, fPos.y - 4, flicker, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fde047';
+    ctx.beginPath();
+    ctx.arc(fPos.x, fPos.y - 3, flicker * 0.55, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 function drawLoot(ctx, item, camX, camY, isHighlighted) {
   const pos = worldToScreen(item.x, item.y, camX, camY);
 
-  if (item.type === 'part') {
+  if (item.type === 'convoy') {
     ctx.beginPath();
     ctx.ellipse(pos.x, pos.y + 4, 15, 7.5, 0, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(34, 211, 238, 0.75)';
+    ctx.strokeStyle = 'rgba(34, 211, 238, 0.8)';
     ctx.lineWidth = 2;
     ctx.stroke();
   }
@@ -238,7 +264,7 @@ function drawLoot(ctx, item, camX, camY, isHighlighted) {
 
   ctx.fillStyle = item.color;
   ctx.beginPath();
-  ctx.arc(pos.x, pos.y - 3, item.type === 'part' ? 8 : 7, 0, Math.PI * 2);
+  ctx.arc(pos.x, pos.y - 3, item.type === 'convoy' ? 8 : 7, 0, Math.PI * 2);
   ctx.fill();
   ctx.strokeStyle = '#0f172a';
   ctx.lineWidth = 1.5;
@@ -250,6 +276,7 @@ function drawZombie(ctx, z, camX, camY) {
   const drawX = z.x + Math.cos(z.facing) * lungeOffset;
   const drawY = z.y + Math.sin(z.facing) * lungeOffset;
   const pos = worldToScreen(drawX, drawY, camX, camY);
+  const s = z.scale || 1;
 
   const phase = z.walkPhase || 0;
   const bob = Math.abs(Math.sin(phase)) * 4.5;
@@ -262,10 +289,10 @@ function drawZombie(ctx, z, camX, camY) {
 
   ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
   ctx.beginPath();
-  ctx.ellipse(pos.x, pos.y + 3, 13, 6.5, 0, 0, Math.PI * 2);
+  ctx.ellipse(pos.x, pos.y + 3, 13 * s, 6.5 * s, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.fillStyle = '#1a2e05';
+  ctx.fillStyle = '#0f172a';
   const perpAng = sAng + Math.PI / 2;
   ctx.beginPath();
   ctx.arc(
@@ -284,8 +311,8 @@ function drawZombie(ctx, z, camX, camY) {
   );
   ctx.fill();
 
-  ctx.strokeStyle = z.lungeTimer > 0 ? '#ef4444' : '#84cc16';
-  ctx.lineWidth = 3.5;
+  ctx.strokeStyle = z.lungeTimer > 0 ? '#ef4444' : z.color || '#84cc16';
+  ctx.lineWidth = 3.5 * s;
   ctx.beginPath();
   ctx.moveTo(pos.x, pos.y - 14 - bob);
   ctx.lineTo(pos.x + Math.cos(sAng - 0.35) * 15, pos.y - 14 - bob + Math.sin(sAng - 0.35) * 9.5);
@@ -293,11 +320,11 @@ function drawZombie(ctx, z, camX, camY) {
   ctx.lineTo(pos.x + Math.cos(sAng + 0.35) * 15, pos.y - 14 - bob + Math.sin(sAng + 0.35) * 9.5);
   ctx.stroke();
 
-  ctx.fillStyle = z.hitFlash > 0 ? '#fca5a5' : z.lungeTimer > 0 ? '#a3e635' : '#4d7c0f';
+  ctx.fillStyle = z.hitFlash > 0 ? '#fca5a5' : z.color || '#4d7c0f';
   ctx.beginPath();
-  ctx.ellipse(pos.x, pos.y - 13 - bob, 9, 17, sway, 0, Math.PI * 2);
+  ctx.ellipse(pos.x, pos.y - 13 * s - bob, 9 * s, 17 * s, sway, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = '#1a2e05';
+  ctx.strokeStyle = '#090d14';
   ctx.lineWidth = 2;
   ctx.stroke();
 
@@ -305,15 +332,15 @@ function drawZombie(ctx, z, camX, camY) {
     ctx.font = 'bold 13px -apple-system, sans-serif';
     ctx.fillStyle = '#ef4444';
     ctx.textAlign = 'center';
-    ctx.fillText('!', pos.x, pos.y - 35 - bob);
+    ctx.fillText('!', pos.x, pos.y - 36 * s - bob);
   }
 
   if (z.hp < z.maxHp) {
-    const bw = 26;
+    const bw = 26 * s;
     ctx.fillStyle = '#0f172a';
-    ctx.fillRect(pos.x - bw / 2, pos.y - 38 - bob, bw, 4);
+    ctx.fillRect(pos.x - bw / 2, pos.y - 39 * s - bob, bw, 4);
     ctx.fillStyle = '#ef4444';
-    ctx.fillRect(pos.x - bw / 2, pos.y - 38 - bob, bw * (z.hp / z.maxHp), 4);
+    ctx.fillRect(pos.x - bw / 2, pos.y - 39 * s - bob, bw * (z.hp / z.maxHp), 4);
   }
 }
 
@@ -321,7 +348,8 @@ function drawPlayer(ctx, player, camX, camY, objectiveTarget) {
   const pos = worldToScreen(player.x, player.y, camX, camY);
   const weapon = WEAPONS[player.equippedWeapon] || WEAPONS.fists;
 
-  const coneRadius = weapon.type === 'ranged' ? 290 : 210;
+  const coneRadius =
+    weapon.type === 'ranged' ? (player.archetype === 'marksman' ? 350 : 290) : 210;
   ctx.save();
   ctx.beginPath();
   ctx.moveTo(pos.x, pos.y);
@@ -345,7 +373,7 @@ function drawPlayer(ctx, player, camX, camY, objectiveTarget) {
       ctx.save();
       ctx.translate(ax, ay);
       ctx.rotate(ang);
-      ctx.fillStyle = objectiveTarget.isTower ? '#4ade80' : '#22d3ee';
+      ctx.fillStyle = objectiveTarget.isGarage ? '#4ade80' : '#22d3ee';
       ctx.beginPath();
       ctx.moveTo(9, 0);
       ctx.lineTo(-5, -5);
@@ -412,7 +440,7 @@ function drawCombatFx(ctx, camX, camY) {
       ctx.font = 'bold 14px -apple-system, sans-serif';
       ctx.fillStyle = `rgba(248, 113, 113, ${alpha})`;
       ctx.textAlign = 'center';
-      ctx.fillText('-12 HP', to.x, to.y - 34 - rise);
+      ctx.fillText(`-${fx.dmg || 12} HP`, to.x, to.y - 34 - rise);
       ctx.restore();
     } else {
       ctx.save();
@@ -444,7 +472,58 @@ function drawJoysticks(ctx) {
   }
 }
 
-export function renderFrame(ctx, player, nearbyLootIndex, nearbyDoor, objectiveTarget) {
+export function renderMinimap(mctx, player, activeChunks) {
+  const w = 136;
+  const h = 136;
+  const scale = w / MAP_SIZE;
+  mctx.clearRect(0, 0, w, h);
+
+  const drawRingBox = (radius, fill, stroke) => {
+    const x = (CENTER - radius) * scale;
+    const size = radius * 2 * scale;
+    mctx.fillStyle = fill;
+    mctx.fillRect(x, x, size, size);
+    if (stroke) {
+      mctx.strokeStyle = stroke;
+      mctx.lineWidth = 1;
+      mctx.strokeRect(x, x, size, size);
+    }
+  };
+
+  drawRingBox(504, 'rgba(239, 68, 68, 0.14)', '#ef4444'); // Ring 3
+  drawRingBox(370, 'rgba(245, 158, 11, 0.16)', '#f59e0b'); // Ring 2
+  drawRingBox(210, 'rgba(56, 189, 248, 0.16)', '#38bdf8'); // Ring 1
+  drawRingBox(64, 'rgba(34, 197, 94, 0.35)', '#4ade80'); // 128x128 Quarry Safe Hub
+
+  // Highway 9 loop & cardinal arteries
+  mctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
+  mctx.lineWidth = 1;
+  mctx.strokeRect((CENTER - 242) * scale, (CENTER - 242) * scale, 484 * scale, 484 * scale);
+  mctx.beginPath();
+  mctx.moveTo(CENTER * scale, 0);
+  mctx.lineTo(CENTER * scale, h);
+  mctx.moveTo(0, CENTER * scale);
+  mctx.lineTo(w, CENTER * scale);
+  mctx.stroke();
+
+  // Nearby Convoy Supply dots in active chunks
+  for (const c of activeChunks) {
+    for (const item of c.loot) {
+      if (item.type === 'convoy') {
+        mctx.fillStyle = '#22d3ee';
+        mctx.fillRect(item.x * scale - 1.5, item.y * scale - 1.5, 3, 3);
+      }
+    }
+  }
+
+  // Player dot
+  mctx.fillStyle = '#ffffff';
+  mctx.beginPath();
+  mctx.arc(player.x * scale, player.y * scale, 2.8, 0, Math.PI * 2);
+  mctx.fill();
+}
+
+export function renderFrame(ctx, player, activeChunks, nearbyLoot, nearbyDoor, objectiveTarget) {
   ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
 
   const pRot = rotateCoords(player.x, player.y);
@@ -457,23 +536,25 @@ export function renderFrame(ctx, player, nearbyLootIndex, nearbyDoor, objectiveT
   const maxY = Math.min(MAP_SIZE - 1, Math.ceil(player.y + 22));
 
   const revealedMap = {};
-  for (const b of buildings) {
-    revealedMap[b.id] = isBuildingRevealed(b, player);
+  for (const c of activeChunks) {
+    for (const b of c.buildings) {
+      revealedMap[b.id] = isBuildingRevealed(b, player, activeChunks);
+    }
   }
 
-  // Draw floors first
   for (let y = minY; y <= maxY; y++) {
     for (let x = minX; x <= maxX; x++) {
-      if (map[y][x] !== 2) {
-        const b = getBuildingAt(x + 0.5, y + 0.5);
+      const t = getTileAt(x, y);
+      if (t !== 2) {
+        const b = getBuildingAt(x + 0.5, y + 0.5, activeChunks);
         const hidden = b ? !revealedMap[b.id] : false;
-        drawTile(ctx, x, y, camX, camY, map[y][x], hidden);
+        drawTile(ctx, x, y, camX, camY, t, hidden);
       }
     }
   }
 
-  const visibleZombies = zombies.filter((z) => {
-    const b = getBuildingAt(z.x, z.y);
+  const visibleZombies = getActiveZombies(activeChunks).filter((z) => {
+    const b = getBuildingAt(z.x, z.y, activeChunks);
     return !b || revealedMap[b.id];
   });
 
@@ -485,7 +566,7 @@ export function renderFrame(ctx, player, nearbyLootIndex, nearbyDoor, objectiveT
 
   for (let y = minY; y <= maxY; y++) {
     for (let x = minX; x <= maxX; x++) {
-      if (map[y][x] === 2) {
+      if (getTileAt(x, y) === 2) {
         renderables.push({
           depth: depthOf(x, y),
           draw: () => drawWall(ctx, x, y, camX, camY, player, visibleZombies)
@@ -494,38 +575,37 @@ export function renderFrame(ctx, player, nearbyLootIndex, nearbyDoor, objectiveT
     }
   }
 
-  for (const d of doors) {
-    if (d.x >= minX && d.x <= maxX && d.y >= minY && d.y <= maxY) {
-      renderables.push({
-        depth: depthOf(d.x, d.y) + 0.02,
-        draw: () => drawDoor(ctx, d, camX, camY, nearbyDoor === d)
-      });
+  for (const c of activeChunks) {
+    for (const d of c.doors) {
+      if (d.x >= minX && d.x <= maxX && d.y >= minY && d.y <= maxY) {
+        renderables.push({
+          depth: depthOf(d.x, d.y) + 0.02,
+          draw: () => drawDoor(ctx, d, camX, camY, nearbyDoor === d)
+        });
+      }
     }
   }
 
-  const evacBldg = getBuildingAt(radioTower.x, radioTower.y);
-  if (!evacBldg || revealedMap[evacBldg.id]) {
+  drawQuarryLandmarks(ctx, camX, camY);
+
+  const lootList = getNearbyLootList(activeChunks);
+  for (const item of lootList) {
+    if (item.x < minX || item.x > maxX || item.y < minY || item.y > maxY) continue;
+    const b = getBuildingAt(item.x, item.y, activeChunks);
+    if (b && !revealedMap[b.id]) continue;
     renderables.push({
-      depth: depthOf(radioTower.x, radioTower.y) + 0.06,
-      draw: () => drawRadioTower(ctx, camX, camY)
+      depth: depthOf(item.x, item.y) + 0.05,
+      draw: () => drawLoot(ctx, item, camX, camY, nearbyLoot === item)
     });
   }
 
-  worldLoot.forEach((item, idx) => {
-    const b = getBuildingAt(item.x, item.y);
-    if (b && !revealedMap[b.id]) return;
-    renderables.push({
-      depth: depthOf(item.x, item.y) + 0.05,
-      draw: () => drawLoot(ctx, item, camX, camY, idx === nearbyLootIndex)
-    });
-  });
-
-  visibleZombies.forEach((z) => {
+  for (const z of visibleZombies) {
+    if (z.x < minX || z.x > maxX || z.y < minY || z.y > maxY) continue;
     renderables.push({
       depth: depthOf(z.x, z.y) + 0.08,
       draw: () => drawZombie(ctx, z, camX, camY)
     });
-  });
+  }
 
   renderables.push({
     depth: depthOf(player.x, player.y) + 0.1,
@@ -535,9 +615,11 @@ export function renderFrame(ctx, player, nearbyLootIndex, nearbyDoor, objectiveT
   renderables.sort((a, b) => a.depth - b.depth);
   for (const item of renderables) item.draw();
 
-  for (const b of buildings) {
-    if (!revealedMap[b.id]) {
-      drawRoofCap(ctx, b, camX, camY);
+  for (const c of activeChunks) {
+    for (const b of c.buildings) {
+      if (!revealedMap[b.id]) {
+        drawRoofCap(ctx, b, camX, camY);
+      }
     }
   }
 
