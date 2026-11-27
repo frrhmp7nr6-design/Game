@@ -1,4 +1,4 @@
-import { worldToScreen, isTileBlocked, CENTER } from './map.js';
+import { worldToScreen, isTileBlocked, CENTER, campUpgrades } from './map.js';
 import { killedZombieIds } from './chunks.js';
 import { broadcastWorldEvent } from './net.js';
 
@@ -127,6 +127,7 @@ export function updateCombat(dt, player, activeChunks) {
       let dmg = weapon.damage;
       if (weapon.type === 'melee' && player.archetype === 'bruiser') dmg = Math.round(dmg * 1.35);
       if (weapon.type === 'ranged' && player.archetype === 'marksman') dmg = Math.round(dmg * 1.25);
+      if (campUpgrades.armory) dmg = Math.round(dmg * 1.2);
 
       bestTarget.hp -= dmg;
       bestTarget.hitFlash = 0.16;
@@ -166,6 +167,8 @@ export function updateCombat(dt, player, activeChunks) {
       if (z.hp <= 0 || killedZombieIds.has(z.id)) {
         if (!killedZombieIds.has(z.id)) {
           killedZombieIds.add(z.id);
+          // Award Scrap Credits for kills (Juggernaut bosses grant +8 Scrap!)
+          player.scrap = (player.scrap || 0) + (z.isBoss ? 8 : 1);
           broadcastWorldEvent({ kind: 'zkill', id: z.id });
         }
         c.zombies.splice(i, 1);
@@ -173,7 +176,7 @@ export function updateCombat(dt, player, activeChunks) {
       }
 
       const dist = Math.hypot(player.x - z.x, player.y - z.y);
-      const canSee = dist < 9.0 && hasLineOfSight(z.x, z.y, player.x, player.y, activeChunks);
+      const canSee = dist < 9.5 && hasLineOfSight(z.x, z.y, player.x, player.y, activeChunks);
       z.aggro = canSee;
 
       if (canSee) {
@@ -209,7 +212,7 @@ export function updateCombat(dt, player, activeChunks) {
         }
       }
 
-      if (dist <= 0.92 && z.attackCd === 0 && hasLineOfSight(z.x, z.y, player.x, player.y, activeChunks)) {
+      if (dist <= 0.96 && z.attackCd === 0 && hasLineOfSight(z.x, z.y, player.x, player.y, activeChunks)) {
         const dmg = z.dmg || 12;
         player.hp = Math.max(0, player.hp - dmg);
         player.hurtFlash = 0.35;
