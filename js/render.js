@@ -16,7 +16,7 @@ import {
   isBuildingRevealed,
   getNearbyLootList
 } from './map.js';
-import { getTileAt } from './chunks.js';
+import { getTileAt, getRoadKindAt } from './chunks.js';
 import { sticks, MAX_STICK_R } from './input.js';
 import { getActiveZombies, fxList, WEAPONS } from './combat.js';
 import { remotePlayers } from './net.js';
@@ -56,7 +56,51 @@ function drawExtrudedBlock(ctx, wx, wy, camX, camY, h, colors, alpha = 1) {
   ctx.restore();
 }
 
-function drawTile(ctx, wx, wy, camX, camY, type, isHiddenInterior) {
+// Multi-tile extruded 3D box for interior furniture & rooftop HVAC units
+function drawIsoBox(ctx, x1, y1, x2, y2, baseZ, height, camX, camY, colors) {
+  const topN = worldToScreen(x1, y1, camX, camY);
+  const topE = worldToScreen(x2, y1, camX, camY);
+  const topS = worldToScreen(x2, y2, camX, camY);
+  const topW = worldToScreen(x1, y2, camX, camY);
+
+  const zTop = baseZ + height;
+  const zBot = baseZ;
+
+  // Left-South face (topW -> topS)
+  ctx.fillStyle = colors.left;
+  ctx.beginPath();
+  ctx.moveTo(topW.x, topW.y - zTop);
+  ctx.lineTo(topS.x, topS.y - zTop);
+  ctx.lineTo(topS.x, topS.y - zBot);
+  ctx.lineTo(topW.x, topW.y - zBot);
+  ctx.closePath();
+  ctx.fill();
+
+  // Right-East face (topS -> topE)
+  ctx.fillStyle = colors.right;
+  ctx.beginPath();
+  ctx.moveTo(topS.x, topS.y - zTop);
+  ctx.lineTo(topE.x, topE.y - zTop);
+  ctx.lineTo(topE.x, topE.y - zBot);
+  ctx.lineTo(topS.x, topS.y - zBot);
+  ctx.closePath();
+  ctx.fill();
+
+  // Top surface
+  ctx.fillStyle = colors.top;
+  ctx.beginPath();
+  ctx.moveTo(topN.x, topN.y - zTop);
+  ctx.lineTo(topE.x, topE.y - zTop);
+  ctx.lineTo(topS.x, topS.y - zTop);
+  ctx.lineTo(topW.x, topW.y - zTop);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(15, 23, 42, 0.55)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+}
+
+function drawTile(ctx, wx, wy, camX, camY, type, roadKind, isHiddenInterior) {
   const p = worldToScreen(wx, wy, camX, camY);
   if (
     p.x < -TILE_W ||
@@ -77,20 +121,63 @@ function drawTile(ctx, wx, wy, camX, camY, type, isHiddenInterior) {
   if (isHiddenInterior) {
     ctx.fillStyle = '#090d14';
   } else if (type === 1) {
-    ctx.fillStyle = (wx + wy) % 2 === 0 ? '#475569' : '#3f4c5e'; // Sidewalks & Concrete
+    // Sidewalks get crisp light-gray concrete slabs; interior floors get darker slate
+    ctx.fillStyle =
+      roadKind === 'sidewalk'
+        ? (wx + wy) % 2 === 0
+          ? '#64748b'
+          : '#5b6b80'
+        : (wx + wy) % 2 === 0
+        ? '#334155'
+        : '#2c384b';
   } else if (type === 3) {
-    ctx.fillStyle = (wx + wy) % 2 === 0 ? '#27272a' : '#202023'; // Asphalt roads
+    // Distinct asphalt tones by road tier
+    if (roadKind === 'freeway' || roadKind === 'ramp') {
+      ctx.fillStyle = (wx + wy) % 2 === 0 ? '#18181b' : '#141417'; // Deep dark interstate tarmac
+    } else if (roadKind === 'highway' || roadKind === 'boulevard') {
+      ctx.fillStyle = (wx + wy) % 2 === 0 ? '#232327' : '#1e1e22';
+    } else if (roadKind === 'rural') {
+      ctx.fillStyle = (wx + wy) % 2 === 0 ? '#323238' : '#2c2c31'; // Weathered rural chip-seal
+    } else {
+      ctx.fillStyle = (wx + wy) % 2 === 0 ? '#27272a' : '#212124'; // City avenue / street
+    }
   } else if (type === 4) {
     ctx.fillStyle = (wx + wy) % 2 === 0 ? '#1d4ed8' : '#1e40af'; // Euharlee Creek
   } else if (type === 5) {
-    ctx.fillStyle = (wx + wy) % 2 === 0 ? '#5c4033' : '#4e362b'; // Rural dirt/gravel lane
+    ctx.fillStyle = (wx + wy) % 2 === 0 ? '#6b4c35' : '#5e422e'; // Compacted dirt / gravel road
   } else {
     ctx.fillStyle = (wx + wy) % 2 === 0 ? '#1c2b21' : '#18241c'; // Georgia pine woods
   }
   ctx.fill();
-  ctx.strokeStyle = isHiddenInterior ? '#090d14' : 'rgba(15, 23, 42, 0.35)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
+
+  // Subtle tile border (skip border on asphalt so roads look smooth and continuous!)
+  if (type !== 3 && !isHiddenInterior) {
+    ctx.strokeStyle =
+      roadKind === 'sidewalk' ? 'rgba(203, 213, 225, 0.25)' : 'rgba(15, 23, 42, 0.35)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  // Roadway Lane Markings (dashed white/yellow lines & gravel ruts)
+  if (!isHiddenInterior) {
+    if (type === 3 && (wx + wy) % 2 === 0) {
+      if (roadKind === 'freeway' || roadKind === 'highway' || roadKind === 'boulevard') {
+        ctx.fillStyle = roadKind === 'highway' ? 'rgba(250, 204, 21, 0.45)' : 'rgba(248, 250, 252, 0.38)';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y + TILE_H / 2, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (roadKind === 'avenue' || roadKind === 'rural') {
+        ctx.fillStyle = 'rgba(250, 204, 21, 0.32)';
+        ctx.beginPath();
+        ctx.arc(p.x, p.y + TILE_H / 2, 1.3, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (type === 5 && (wx * 3 + wy) % 3 === 0) {
+      // Gravel pebbles on dirt roads
+      ctx.fillStyle = 'rgba(214, 211, 209, 0.28)';
+      ctx.fillRect(p.x - 2, p.y + TILE_H / 2 - 1, 3, 2);
+    }
+  }
 }
 
 function isWallOccludingUnit(wallScreen, unitScreen) {
@@ -133,14 +220,12 @@ function drawWall(ctx, wx, wy, camX, camY, player, visibleZombies, building, wal
   const h = 42;
   drawExtrudedBlock(ctx, wx, wy, camX, camY, h, colors, alpha);
 
-  // Draw recessed Windows or Boarded Planks on camera-facing wall faces
   if (wallMeta && wallMeta.hasWindow && !occluding) {
     ctx.save();
     ctx.globalAlpha = 0.92;
     const winColor = wallMeta.isBoarded ? '#92400e' : '#38bdf8';
 
     if (wallMeta.faceSouth) {
-      // Left isometric face (+y south-facing)
       ctx.fillStyle = '#0f172a';
       ctx.beginPath();
       ctx.moveTo(p.x - 24, p.y + 12);
@@ -159,7 +244,6 @@ function drawWall(ctx, wx, wy, camX, camY, player, visibleZombies, building, wal
       ctx.closePath();
       ctx.fill();
     } else if (wallMeta.faceEast) {
-      // Right isometric face (+x east-facing)
       ctx.fillStyle = '#0f172a';
       ctx.beginPath();
       ctx.moveTo(p.x + 8, p.y + 20);
@@ -179,7 +263,6 @@ function drawWall(ctx, wx, wy, camX, camY, player, visibleZombies, building, wal
       ctx.fill();
     }
 
-    // Commercial storefront awning overhang above South windows
     if (building?.category === 'commercial' && wallMeta.faceSouth && pal?.awning) {
       ctx.fillStyle = pal.awning;
       ctx.beginPath();
@@ -233,91 +316,200 @@ function drawDoor(ctx, door, camX, camY, isHighlighted) {
   }
 }
 
+// Proper Extruded 3D Isometric Interior Furniture (wall-aligned counters, shelves, beds & tables)
 function drawInteriorProp(ctx, prop, camX, camY) {
-  const pos = worldToScreen(prop.x, prop.y, camX, camY);
+  const w = prop.w || 2;
+  const d = prop.d || 1;
   if (prop.kind === 'bed') {
-    ctx.fillStyle = '#1e3a8a';
-    ctx.fillRect(pos.x - 10, pos.y - 10, 20, 11);
-    ctx.fillStyle = '#f8fafc';
-    ctx.fillRect(pos.x - 9, pos.y - 10, 7, 6);
-  } else if (prop.kind === 'counter' || prop.kind === 'shelf') {
-    ctx.fillStyle = '#78350f';
-    ctx.fillRect(pos.x - 12, pos.y - 11, 24, 10);
-    ctx.strokeStyle = '#0f172a';
-    ctx.lineWidth = 1.2;
-    ctx.strokeRect(pos.x - 12, pos.y - 11, 24, 10);
+    drawIsoBox(ctx, prop.x, prop.y, prop.x + w, prop.y + d, 0, 10, camX, camY, {
+      left: '#1e3a8a',
+      right: '#172554',
+      top: '#2563eb'
+    });
+    // White pillow at head of bed
+    drawIsoBox(ctx, prop.x + 0.15, prop.y + 0.15, prop.x + w - 0.15, prop.y + 0.65, 10, 3, camX, camY, {
+      left: '#cbd5e1',
+      right: '#94a3b8',
+      top: '#f8fafc'
+    });
+  } else if (prop.kind === 'counter') {
+    drawIsoBox(ctx, prop.x, prop.y, prop.x + w, prop.y + d, 0, 14, camX, camY, {
+      left: '#78350f',
+      right: '#5c280b',
+      top: '#cbd5e1' // Stainless/granite countertop
+    });
+  } else if (prop.kind === 'shelf') {
+    drawIsoBox(ctx, prop.x, prop.y, prop.x + w, prop.y + d, 0, 22, camX, camY, {
+      left: '#475569',
+      right: '#334155',
+      top: '#64748b'
+    });
   } else {
-    ctx.fillStyle = '#92400e';
-    ctx.beginPath();
-    ctx.ellipse(pos.x, pos.y - 4, 10, 5, 0, 0, Math.PI * 2);
-    ctx.fill();
+    // Dining / work table
+    drawIsoBox(ctx, prop.x, prop.y, prop.x + w, prop.y + d, 0, 12, camX, camY, {
+      left: '#92400e',
+      right: '#78350f',
+      top: '#b45309'
+    });
   }
 }
 
+// True Continuous 3D Sloped Gable Roofs & Raised Parapet Commercial Roofs (Zero stair-stepping!)
 function drawRoofCap(ctx, building, camX, camY) {
   const pal = building.palette || {
-    roofL: 'rgba(30, 41, 59, 0.94)',
-    roofR: 'rgba(23, 32, 46, 0.94)'
+    wallL: '#475569',
+    wallR: '#334155',
+    roofL: '#334155',
+    roofR: '#1e293b'
   };
+
+  const rects = building.rects || [{ x1: building.x1, y1: building.y1, x2: building.x2, y2: building.y2 }];
+  const wallH = 42;
+
+  for (const r of rects) {
+    // Bounding box in world coordinates (inclusive of x2+1, y2+1 outer wall edge)
+    const x1 = r.x1;
+    const y1 = r.y1;
+    const x2 = r.x2 + 1;
+    const y2 = r.y2 + 1;
+
+    const nw = worldToScreen(x1, y1, camX, camY);
+    const ne = worldToScreen(x2, y1, camX, camY);
+    const se = worldToScreen(x2, y2, camX, camY);
+    const sw = worldToScreen(x1, y2, camX, camY);
+
+    if (building.roofStyle === 'parapet') {
+      // Flat commercial roof deck + 3D raised parapet rim + rooftop HVAC unit
+      const rimH = wallH + 6;
+      ctx.fillStyle = pal.roofR;
+      ctx.beginPath();
+      ctx.moveTo(nw.x, nw.y - rimH);
+      ctx.lineTo(ne.x, ne.y - rimH);
+      ctx.lineTo(se.x, se.y - rimH);
+      ctx.lineTo(sw.x, sw.y - rimH);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = pal.wallL;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+
+      // Inner recessed tar roof surface
+      const cx = (x1 + x2) / 2;
+      const cy = (y1 + y2) / 2;
+      drawIsoBox(ctx, cx - 1.2, cy - 1.2, cx + 1.2, cy + 1.2, rimH - 2, 7, camX, camY, {
+        left: '#94a3b8',
+        right: '#64748b',
+        top: '#cbd5e1'
+      });
+    } else {
+      // Continuous 3D Pitched Gable Roof along the longest axis!
+      const spanX = x2 - x1;
+      const spanY = y2 - y1;
+      const ridgeH = wallH + Math.min(28, Math.max(18, Math.min(spanX, spanY) * 2.4));
+
+      if (spanX >= spanY) {
+        // East-West Ridge Line
+        const midY = (y1 + y2) / 2;
+        const rWest = worldToScreen(x1, midY, camX, camY);
+        const rEast = worldToScreen(x2, midY, camX, camY);
+
+        // North/Back roof slope
+        ctx.fillStyle = pal.roofR;
+        ctx.beginPath();
+        ctx.moveTo(nw.x, nw.y - wallH);
+        ctx.lineTo(ne.x, ne.y - wallH);
+        ctx.lineTo(rEast.x, rEast.y - ridgeH);
+        ctx.lineTo(rWest.x, rWest.y - ridgeH);
+        ctx.closePath();
+        ctx.fill();
+
+        // South/Front roof slope (facing camera)
+        ctx.fillStyle = pal.roofL;
+        ctx.beginPath();
+        ctx.moveTo(rWest.x, rWest.y - ridgeH);
+        ctx.lineTo(rEast.x, rEast.y - ridgeH);
+        ctx.lineTo(se.x, se.y - wallH);
+        ctx.lineTo(sw.x, sw.y - wallH);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(15, 23, 42, 0.45)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // East & West triangular gable end-walls
+        ctx.fillStyle = pal.wallR;
+        ctx.beginPath();
+        ctx.moveTo(ne.x, ne.y - wallH);
+        ctx.lineTo(se.x, se.y - wallH);
+        ctx.lineTo(rEast.x, rEast.y - ridgeH);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = pal.wallL;
+        ctx.beginPath();
+        ctx.moveTo(nw.x, nw.y - wallH);
+        ctx.lineTo(sw.x, sw.y - wallH);
+        ctx.lineTo(rWest.x, rWest.y - ridgeH);
+        ctx.closePath();
+        ctx.fill();
+      } else {
+        // North-South Ridge Line
+        const midX = (x1 + x2) / 2;
+        const rNorth = worldToScreen(midX, y1, camX, camY);
+        const rSouth = worldToScreen(midX, y2, camX, camY);
+
+        // West/Left roof slope
+        ctx.fillStyle = pal.roofL;
+        ctx.beginPath();
+        ctx.moveTo(nw.x, nw.y - wallH);
+        ctx.lineTo(rNorth.x, rNorth.y - ridgeH);
+        ctx.lineTo(rSouth.x, rSouth.y - ridgeH);
+        ctx.lineTo(sw.x, sw.y - wallH);
+        ctx.closePath();
+        ctx.fill();
+
+        // East/Right roof slope
+        ctx.fillStyle = pal.roofR;
+        ctx.beginPath();
+        ctx.moveTo(rNorth.x, rNorth.y - ridgeH);
+        ctx.lineTo(ne.x, ne.y - wallH);
+        ctx.lineTo(se.x, se.y - wallH);
+        ctx.lineTo(rSouth.x, rSouth.y - ridgeH);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(15, 23, 42, 0.45)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // South triangular gable end-wall
+        ctx.fillStyle = pal.wallL;
+        ctx.beginPath();
+        ctx.moveTo(sw.x, sw.y - wallH);
+        ctx.lineTo(se.x, se.y - wallH);
+        ctx.lineTo(rSouth.x, rSouth.y - ridgeH);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+  }
+
+  // Brick Chimney on residential roofs
+  if (building.category !== 'commercial') {
+    const r0 = rects[0];
+    drawIsoBox(ctx, r0.x1 + 1.5, r0.y1 + 1.5, r0.x1 + 2.4, r0.y1 + 2.4, wallH + 12, 16, camX, camY, {
+      left: '#991b1b',
+      right: '#7f1d1d',
+      top: '#450a0a'
+    });
+  }
+
   const midX = (building.x1 + building.x2 + 1) / 2;
   const midY = (building.y1 + building.y2 + 1) / 2;
-
-  const cells = building.cellSet ? Array.from(building.cellSet) : [];
-  for (const key of cells) {
-    const [x, y] = key.split(',').map(Number);
-    const p = worldToScreen(x, y, camX, camY);
-    if (
-      p.x < -TILE_W ||
-      p.x > window.innerWidth + TILE_W ||
-      p.y < -TILE_H * 2 ||
-      p.y > window.innerHeight + TILE_H
-    ) {
-      continue;
-    }
-
-    // Pitched 3D ridge elevation for houses vs raised parapet roof for commercial buildings
-    let h = 42;
-    if (building.roofStyle === 'gable' || building.roofStyle === 'hip') {
-      const distFromRidge = Math.abs(y + 0.5 - midY);
-      const maxSpan = Math.max(1, (building.y2 - building.y1) / 2);
-      h = 42 + Math.max(0, (1 - distFromRidge / maxSpan) * 16);
-    } else if (building.roofStyle === 'parapet') {
-      const isEdge =
-        !building.cellSet.has(`${x + 1},${y}`) ||
-        !building.cellSet.has(`${x - 1},${y}`) ||
-        !building.cellSet.has(`${x},${y + 1}`) ||
-        !building.cellSet.has(`${x},${y - 1}`);
-      h = isEdge ? 46 : 42;
-    }
-
-    ctx.fillStyle = y + 0.5 < midY ? pal.roofL : pal.roofR;
-    ctx.beginPath();
-    ctx.moveTo(p.x, p.y - h);
-    ctx.lineTo(p.x + TILE_W / 2, p.y + TILE_H / 2 - h);
-    ctx.lineTo(p.x, p.y + TILE_H - h);
-    ctx.lineTo(p.x - TILE_W / 2, p.y + TILE_H / 2 - h);
-    ctx.closePath();
-    ctx.fill();
-  }
-
   const center = worldToScreen(midX, midY, camX, camY);
-
-  // Rooftop HVAC unit on commercial roofs or Brick Chimney on residential roofs
-  if (building.category === 'commercial') {
-    ctx.fillStyle = '#94a3b8';
-    ctx.fillRect(center.x - 10, center.y - 52, 20, 11);
-    ctx.strokeStyle = '#334155';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(center.x - 10, center.y - 52, 20, 11);
-  } else {
-    ctx.fillStyle = '#991b1b';
-    ctx.fillRect(center.x + 12, center.y - 62, 7, 12);
-  }
-
   ctx.font = 'bold 11px -apple-system, sans-serif';
-  ctx.fillStyle = building.id === 'rockmart-pd' ? '#38bdf8' : 'rgba(241, 245, 249, 0.92)';
+  ctx.fillStyle = building.id === 'rockmart-pd' ? '#38bdf8' : 'rgba(241, 245, 249, 0.94)';
   ctx.textAlign = 'center';
-  ctx.fillText(building.name.toUpperCase(), center.x, center.y - 58);
+  ctx.fillText(building.name.toUpperCase(), center.x, center.y - 68);
 }
 
 function drawQuarryLandmarks(ctx, camX, camY) {
@@ -733,11 +925,10 @@ export function renderMinimap(mctx, player, activeChunks) {
   const scale = w / MAP_SIZE;
   mctx.clearRect(0, 0, w, h);
 
-  // Rural Georgia pine countryside base
   mctx.fillStyle = '#14221a';
   mctx.fillRect(0, 0, w, h);
 
-  // Downtown Rockmart & Oakridge Subdivision community zones
+  // Downtown & Oakridge Subdivision zones
   mctx.fillStyle = 'rgba(100, 116, 139, 0.22)';
   mctx.fillRect(360 * scale, 290 * scale, 270 * scale, 250 * scale);
   mctx.fillRect(220 * scale, 340 * scale, 140 * scale, 160 * scale);
@@ -753,17 +944,26 @@ export function renderMinimap(mctx, player, activeChunks) {
   }
   mctx.stroke();
 
-  // Community Road Grid & Rural Highways
+  // Interstate Freeway I-20 (bold red/orange ribbon across north)
+  mctx.strokeStyle = '#f97316';
+  mctx.lineWidth = 2.2;
+  mctx.beginPath();
+  for (let wx = 0; wx <= MAP_SIZE; wx += 32) {
+    const wy = 115 + Math.sin(wx * 0.005) * 8;
+    if (wx === 0) mctx.moveTo(wx * scale, wy * scale);
+    else mctx.lineTo(wx * scale, wy * scale);
+  }
+  mctx.stroke();
+
+  // US-278 Highway, Boulevard, Avenues, Streets & Rural Roads
   mctx.strokeStyle = '#64748b';
   mctx.lineWidth = 1.2;
   mctx.beginPath();
-  // US-278
   for (let wx = 0; wx <= MAP_SIZE; wx += 32) {
     const wy = 252 + Math.sin(wx * 0.007) * 10;
     if (wx === 0) mctx.moveTo(wx * scale, wy * scale);
     else mctx.lineTo(wx * scale, wy * scale);
   }
-  // Town avenues
   for (const sy of [310, 358, 406, 454, 502]) {
     mctx.moveTo(360 * scale, sy * scale);
     mctx.lineTo(630 * scale, sy * scale);
@@ -772,7 +972,6 @@ export function renderMinimap(mctx, player, activeChunks) {
     mctx.moveTo(sx * scale, 290 * scale);
     mctx.lineTo(sx * scale, 540 * scale);
   }
-  // Marble St spine & rural highways
   mctx.moveTo(520 * scale, 625 * scale);
   mctx.lineTo(558 * scale, 245 * scale);
   mctx.moveTo(515 * scale, 485 * scale);
@@ -790,7 +989,6 @@ export function renderMinimap(mctx, player, activeChunks) {
   mctx.fill();
   mctx.stroke();
 
-  // Rockmart Police Precinct marker
   mctx.fillStyle = '#38bdf8';
   mctx.fillRect(policePrecinct.x * scale - 2, policePrecinct.y * scale - 2, 4, 4);
 
@@ -854,9 +1052,10 @@ export function renderFrame(ctx, player, activeChunks, nearbyLoot, nearbyDoor, o
     for (let x = minX; x <= maxX; x++) {
       const t = getTileAt(x, y);
       if (t !== 2) {
+        const rk = getRoadKindAt(x, y);
         const b = getBuildingAt(x + 0.5, y + 0.5, activeChunks);
         const hidden = b ? !revealedMap[b.id] : false;
-        drawTile(ctx, x, y, camX, camY, t, hidden);
+        drawTile(ctx, x, y, camX, camY, t, rk, hidden);
       }
     }
   }
@@ -895,13 +1094,12 @@ export function renderFrame(ctx, player, activeChunks, nearbyLoot, nearbyDoor, o
       }
     }
 
-    // Draw interior furniture when a building's roof is revealed
     for (const b of c.buildings) {
       if (revealedMap[b.id] && b.props) {
         for (const prop of b.props) {
           if (prop.x >= minX && prop.x <= maxX && prop.y >= minY && prop.y <= maxY) {
             renderables.push({
-              depth: depthOf(prop.x, prop.y) + 0.03,
+              depth: depthOf(prop.x + (prop.w || 1) / 2, prop.y + (prop.d || 1) / 2) + 0.03,
               draw: () => drawInteriorProp(ctx, prop, camX, camY)
             });
           }
@@ -962,12 +1160,20 @@ export function renderFrame(ctx, player, activeChunks, nearbyLoot, nearbyDoor, o
   renderables.sort((a, b) => a.depth - b.depth);
   for (const item of renderables) item.draw();
 
+  // Draw unrevealed roofs sorted back-to-front so overlapping L-wings never z-fight
+  const unrevealed = [];
+  const seenIds = new Set();
   for (const c of activeChunks) {
     for (const b of c.buildings) {
-      if (!revealedMap[b.id]) {
-        drawRoofCap(ctx, b, camX, camY);
+      if (!revealedMap[b.id] && !seenIds.has(b.id)) {
+        seenIds.add(b.id);
+        unrevealed.push(b);
       }
     }
+  }
+  unrevealed.sort((a, b) => depthOf(a.x1, a.y1) - depthOf(b.x1, b.y1));
+  for (const b of unrevealed) {
+    drawRoofCap(ctx, b, camX, camY);
   }
 
   drawCombatFx(ctx, camX, camY);
