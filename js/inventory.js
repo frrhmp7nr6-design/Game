@@ -1,4 +1,4 @@
-import { convoyGarage } from './map.js';
+import { convoyGarage, campUpgrades } from './map.js';
 import { lootedIds, droppedLoot } from './chunks.js';
 import { WEAPONS } from './combat.js';
 
@@ -16,6 +16,7 @@ export function showToast(msg) {
 export function applyArchetypeLoadout(player, arch) {
   player.archetype = arch;
   player.carryingCrate = null;
+  player.scrap = 2;
   inventory.length = 0;
 
   if (arch === 'bruiser') {
@@ -82,6 +83,111 @@ export function initInventory(player) {
   renderBag(player);
 
   return { toggleBag };
+}
+
+export function openCraftingBench(player) {
+  const modal = document.getElementById('craft-modal');
+  const grid = document.getElementById('craft-grid');
+  const resLabel = document.getElementById('craft-resources');
+
+  const recipes = [
+    {
+      id: 'craft-bandage',
+      title: '🩹 Field Bandage (2 Scrap)',
+      sub: 'Restores +45 HP on demand',
+      cost: 2,
+      action: () => {
+        if (inventory.length >= player.bagCapacity) return showToast('Bag full!');
+        inventory.push({ id: `med-${Date.now()}`, name: 'Field Bandage', type: 'med', hp: 45, color: '#f8fafc' });
+        return true;
+      }
+    },
+    {
+      id: 'craft-mre',
+      title: '🥫 Trail MRE Pack (2 Scrap)',
+      sub: 'Restores +55% Fullness & +10 HP',
+      cost: 2,
+      action: () => {
+        if (inventory.length >= player.bagCapacity) return showToast('Bag full!');
+        inventory.push({ id: `mre-${Date.now()}`, name: 'Trail MRE Pack', type: 'food', hunger: 55, hp: 10, color: '#eab308' });
+        return true;
+      }
+    },
+    {
+      id: 'craft-axe',
+      title: '🪓 Forged Fire Axe (5 Scrap)',
+      sub: '58 Melee DMG • Heavy Cleave',
+      cost: 5,
+      action: () => {
+        if (inventory.length >= player.bagCapacity) return showToast('Bag full!');
+        inventory.push({ id: `axe-${Date.now()}`, name: 'Fire Axe', type: 'weapon', weaponId: 'axe', color: '#f43f5e' });
+        player.equippedWeapon = 'axe';
+        return true;
+      }
+    },
+    {
+      id: 'craft-pistol',
+      title: '🔫 Tactical 9mm Pistol (6 Scrap)',
+      sub: '50 Ranged DMG • 7.8 Tile Reach',
+      cost: 6,
+      action: () => {
+        if (inventory.length >= player.bagCapacity) return showToast('Bag full!');
+        inventory.push({ id: `pis-${Date.now()}`, name: '9mm Pistol', type: 'weapon', weaponId: 'pistol', color: '#94a3b8' });
+        player.equippedWeapon = 'pistol';
+        return true;
+      }
+    },
+    {
+      id: 'upg-armory',
+      title: campUpgrades.armory ? '✅ Quarry Armory (BUILT)' : '⚔️ Upgrade Armory (8 Scrap)',
+      sub: '+20% All Weapon Damage permanently',
+      cost: 8,
+      disabled: campUpgrades.armory,
+      action: () => {
+        campUpgrades.armory = true;
+        return true;
+      }
+    },
+    {
+      id: 'upg-medtent',
+      title: campUpgrades.medicTent ? '✅ Field Med Tent (BUILT)' : '🏥 Upgrade Med Tent (8 Scrap)',
+      sub: '2× Quarry Campfire healing speed & +20 Max HP',
+      cost: 8,
+      disabled: campUpgrades.medicTent,
+      action: () => {
+        campUpgrades.medicTent = true;
+        player.maxHp += 20;
+        player.hp = Math.min(player.maxHp, player.hp + 20);
+        return true;
+      }
+    }
+  ];
+
+  resLabel.textContent = `Scrap Credits: ${player.scrap || 0} ⚙️ • Rescued Specialists: ${convoyGarage.specialists}`;
+  grid.innerHTML = '';
+
+  recipes.forEach((r) => {
+    const btn = document.createElement('button');
+    btn.className = 'arch-btn';
+    if (r.disabled) btn.style.opacity = '0.55';
+    btn.innerHTML = `<span class="arch-title">${r.title}</span><span class="arch-sub">${r.sub}</span>`;
+    btn.addEventListener('click', () => {
+      if (r.disabled) return;
+      if ((player.scrap || 0) < r.cost) {
+        showToast(`Need ${r.cost} Scrap Credits (kill zombies or load Convoy)!`);
+        return;
+      }
+      if (r.action() === true) {
+        player.scrap -= r.cost;
+        renderBag(player);
+        showToast(`Crafted: ${r.title.replace(/\s*\(\d+ Scrap\)/, '')}`);
+        openCraftingBench(player);
+      }
+    });
+    grid.appendChild(btn);
+  });
+
+  modal.classList.add('open');
 }
 
 export function hasLockpick() {
@@ -173,7 +279,6 @@ export function renderBag(player) {
 export function grabLootItem(player, item, activeChunks) {
   if (!item || player.dead) return false;
 
-  // Heavy Supply Crates are hauled on the back rather than stored in small backpack slots
   if (item.type === 'heavy') {
     if (player.carryingCrate) {
       showToast('Already hauling a Heavy Supply Crate!');
@@ -181,7 +286,7 @@ export function grabLootItem(player, item, activeChunks) {
     }
     removeFromWorld(item, activeChunks);
     player.carryingCrate = item;
-    showToast('📦 Hauling Heavy Supply Crate! (-35% speed, +4 Convoy pts)');
+    showToast(`📦 Hauling ${item.name}! (+${item.value} Convoy pts)`);
     return true;
   }
 
@@ -216,7 +321,7 @@ export function dropHeavyCrate(player) {
     x: player.x + (Math.random() - 0.5) * 0.4,
     y: player.y + (Math.random() - 0.5) * 0.4
   });
-  showToast('Dropped Heavy Supply Crate');
+  showToast(`Dropped ${crate.name}`);
   return true;
 }
 
@@ -252,10 +357,11 @@ export function deliverConvoySupplies(player) {
   }
 
   if (addedPoints > 0) {
-    // Rescued Quarry specialists grant +1 bonus point per delivery
     const engineerBonus = convoyGarage.specialists > 0 ? 1 : 0;
     const totalAdded = addedPoints + engineerBonus;
     convoyGarage.points = Math.min(convoyGarage.targetPoints, convoyGarage.points + totalAdded);
+    // Reward Scrap Credits for every delivery
+    player.scrap = (player.scrap || 0) + totalAdded * 2;
     renderBag(player);
     return totalAdded;
   }
