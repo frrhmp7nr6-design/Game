@@ -5,6 +5,8 @@ import {
   CENTER,
   convoyGarage,
   quarryCampfire,
+  rescueEvent,
+  rescuedSpecialists,
   rotateCoords,
   worldToScreen,
   getBuildingAt,
@@ -242,23 +244,67 @@ function drawQuarryLandmarks(ctx, camX, camY) {
   }
 }
 
+function drawRescueNpc(ctx, npc, camX, camY, isRescueTarget) {
+  const pos = worldToScreen(npc.x, npc.y, camX, camY);
+  if (pos.x < -80 || pos.x > window.innerWidth + 80) return;
+
+  // Distress flare ring if waiting to be rescued
+  if (isRescueTarget && !npc.following) {
+    const pulse = 18 + Math.sin(performance.now() / 180) * 6;
+    ctx.beginPath();
+    ctx.ellipse(pos.x, pos.y + 3, pulse, pulse * 0.5, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(244, 114, 182, 0.85)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+  ctx.beginPath();
+  ctx.ellipse(pos.x, pos.y + 2, 11, 5.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#f472b6';
+  ctx.beginPath();
+  ctx.ellipse(pos.x, pos.y - 12, 8.5, 16, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#0f172a';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  ctx.font = 'bold 10px -apple-system, sans-serif';
+  ctx.fillStyle = '#fbcfe8';
+  ctx.textAlign = 'center';
+  ctx.fillText(npc.name.toUpperCase(), pos.x, pos.y - 33);
+}
+
 function drawLoot(ctx, item, camX, camY, isHighlighted) {
   const pos = worldToScreen(item.x, item.y, camX, camY);
 
-  if (item.type === 'convoy') {
+  if (item.type === 'convoy' || item.type === 'heavy') {
     ctx.beginPath();
-    ctx.ellipse(pos.x, pos.y + 4, 15, 7.5, 0, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(34, 211, 238, 0.8)';
+    ctx.ellipse(pos.x, pos.y + 4, 16, 8, 0, 0, Math.PI * 2);
+    ctx.strokeStyle =
+      item.type === 'heavy' ? 'rgba(251, 146, 60, 0.9)' : 'rgba(34, 211, 238, 0.8)';
     ctx.lineWidth = 2;
     ctx.stroke();
   }
 
   if (isHighlighted) {
     ctx.beginPath();
-    ctx.ellipse(pos.x, pos.y + 4, 19, 9.5, 0, 0, Math.PI * 2);
+    ctx.ellipse(pos.x, pos.y + 4, 20, 10, 0, 0, Math.PI * 2);
     ctx.strokeStyle = '#4ade80';
     ctx.lineWidth = 2.5;
     ctx.stroke();
+  }
+
+  if (item.type === 'heavy') {
+    // Draw bulky wooden/steel crate box
+    ctx.fillStyle = '#ea580c';
+    ctx.fillRect(pos.x - 8, pos.y - 13, 16, 13);
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(pos.x - 8, pos.y - 13, 16, 13);
+    return;
   }
 
   ctx.fillStyle = item.color;
@@ -346,7 +392,6 @@ function drawZombie(ctx, z, camX, camY) {
 function drawRemotePlayer(ctx, rp, camX, camY) {
   const pos = worldToScreen(rp.x, rp.y, camX, camY);
 
-  // Subtle teammate flashlight cone
   ctx.save();
   ctx.beginPath();
   ctx.moveTo(pos.x, pos.y);
@@ -369,7 +414,6 @@ function drawRemotePlayer(ctx, rp, camX, camY) {
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Archetype tag
   ctx.font = 'bold 10px -apple-system, sans-serif';
   ctx.fillStyle = '#86efac';
   ctx.textAlign = 'center';
@@ -405,7 +449,8 @@ function drawPlayer(ctx, player, camX, camY, objectiveTarget) {
       ctx.save();
       ctx.translate(ax, ay);
       ctx.rotate(ang);
-      ctx.fillStyle = objectiveTarget.isGarage ? '#4ade80' : '#22d3ee';
+      ctx.fillStyle =
+        objectiveTarget.color || (objectiveTarget.isGarage ? '#4ade80' : '#22d3ee');
       ctx.beginPath();
       ctx.moveTo(9, 0);
       ctx.lineTo(-5, -5);
@@ -429,6 +474,15 @@ function drawPlayer(ctx, player, camX, camY, objectiveTarget) {
   ctx.strokeStyle = '#0f172a';
   ctx.lineWidth = 2;
   ctx.stroke();
+
+  // Draw Heavy Supply Crate strapped onto player's back when hauling
+  if (player.carryingCrate) {
+    ctx.fillStyle = '#ea580c';
+    ctx.fillRect(pos.x - 9, pos.y - 24, 18, 13);
+    ctx.strokeStyle = '#fde047';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(pos.x - 9, pos.y - 24, 18, 13);
+  }
 
   ctx.fillStyle = '#fef08a';
   ctx.beginPath();
@@ -539,14 +593,23 @@ export function renderMinimap(mctx, player, activeChunks) {
 
   for (const c of activeChunks) {
     for (const item of c.loot) {
-      if (item.type === 'convoy') {
-        mctx.fillStyle = '#22d3ee';
+      if (item.type === 'convoy' || item.type === 'heavy') {
+        mctx.fillStyle = item.type === 'heavy' ? '#fb923c' : '#22d3ee';
         mctx.fillRect(item.x * scale - 1.5, item.y * scale - 1.5, 3, 3);
       }
     }
   }
 
-  // Co-op teammates (green dots)
+  // Pulsing Magenta Neighbor Rescue Flare beacon on minimap
+  if (rescueEvent.active && !rescueEvent.following) {
+    const pulse = 3 + Math.sin(performance.now() / 160) * 1.5;
+    mctx.strokeStyle = '#f472b6';
+    mctx.lineWidth = 1.5;
+    mctx.beginPath();
+    mctx.arc(rescueEvent.x * scale, rescueEvent.y * scale, pulse, 0, Math.PI * 2);
+    mctx.stroke();
+  }
+
   for (const rp of remotePlayers.values()) {
     mctx.fillStyle = '#4ade80';
     mctx.beginPath();
@@ -554,7 +617,6 @@ export function renderMinimap(mctx, player, activeChunks) {
     mctx.fill();
   }
 
-  // Local player (white dot)
   mctx.fillStyle = '#ffffff';
   mctx.beginPath();
   mctx.arc(player.x * scale, player.y * scale, 2.8, 0, Math.PI * 2);
@@ -637,6 +699,23 @@ export function renderFrame(ctx, player, activeChunks, nearbyLoot, nearbyDoor, o
     });
   }
 
+  // Active Rescue Flare NPC
+  if (rescueEvent.active) {
+    renderables.push({
+      depth: depthOf(rescueEvent.x, rescueEvent.y) + 0.09,
+      draw: () => drawRescueNpc(ctx, rescueEvent, camX, camY, true)
+    });
+  }
+
+  // Rescued Specialists settled inside Quarry Camp
+  for (const spec of rescuedSpecialists) {
+    if (spec.x < minX || spec.x > maxX || spec.y < minY || spec.y > maxY) continue;
+    renderables.push({
+      depth: depthOf(spec.x, spec.y) + 0.09,
+      draw: () => drawRescueNpc(ctx, spec, camX, camY, false)
+    });
+  }
+
   for (const z of visibleZombies) {
     if (z.x < minX || z.x > maxX || z.y < minY || z.y > maxY) continue;
     renderables.push({
@@ -645,7 +724,6 @@ export function renderFrame(ctx, player, activeChunks, nearbyLoot, nearbyDoor, o
     });
   }
 
-  // Co-op teammates in viewport
   for (const rp of remotePlayers.values()) {
     if (rp.x < minX || rp.x > maxX || rp.y < minY || rp.y > maxY) continue;
     renderables.push({
