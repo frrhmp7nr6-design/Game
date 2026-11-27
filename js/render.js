@@ -14,6 +14,7 @@ import {
 import { getTileAt } from './chunks.js';
 import { sticks, MAX_STICK_R } from './input.js';
 import { getActiveZombies, fxList, WEAPONS } from './combat.js';
+import { remotePlayers } from './net.js';
 
 function drawExtrudedBlock(ctx, wx, wy, camX, camY, h, colors, alpha = 1) {
   const p = worldToScreen(wx, wy, camX, camY);
@@ -199,7 +200,6 @@ function drawRoofCap(ctx, building, camX, camY) {
 }
 
 function drawQuarryLandmarks(ctx, camX, camY) {
-  // 1. Iron Convoy Armored Bus Chassis at (501.5, 501.5)
   const gPos = worldToScreen(convoyGarage.x, convoyGarage.y, camX, camY);
   if (gPos.x > -100 && gPos.x < window.innerWidth + 100) {
     ctx.beginPath();
@@ -220,7 +220,6 @@ function drawQuarryLandmarks(ctx, camX, camY) {
     ctx.fillText('IRON CONVOY', gPos.x, gPos.y - 28);
   }
 
-  // 2. Central Quarry Campfire Healing Ring at (512.5, 512.5)
   const fPos = worldToScreen(quarryCampfire.x, quarryCampfire.y, camX, camY);
   if (fPos.x > -100 && fPos.x < window.innerWidth + 100) {
     ctx.beginPath();
@@ -342,6 +341,39 @@ function drawZombie(ctx, z, camX, camY) {
     ctx.fillStyle = '#ef4444';
     ctx.fillRect(pos.x - bw / 2, pos.y - 39 * s - bob, bw * (z.hp / z.maxHp), 4);
   }
+}
+
+function drawRemotePlayer(ctx, rp, camX, camY) {
+  const pos = worldToScreen(rp.x, rp.y, camX, camY);
+
+  // Subtle teammate flashlight cone
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(pos.x, pos.y);
+  ctx.arc(pos.x, pos.y, 160, rp.angle - 0.45, rp.angle + 0.45);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(74, 222, 128, 0.1)';
+  ctx.fill();
+  ctx.restore();
+
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+  ctx.beginPath();
+  ctx.ellipse(pos.x, pos.y + 2, 12, 6, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = '#22c55e';
+  ctx.beginPath();
+  ctx.ellipse(pos.x, pos.y - 12, 9, 17, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#0f172a';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Archetype tag
+  ctx.font = 'bold 10px -apple-system, sans-serif';
+  ctx.fillStyle = '#86efac';
+  ctx.textAlign = 'center';
+  ctx.fillText((rp.archetype || 'ALLY').toUpperCase(), pos.x, pos.y - 34);
 }
 
 function drawPlayer(ctx, player, camX, camY, objectiveTarget) {
@@ -490,12 +522,11 @@ export function renderMinimap(mctx, player, activeChunks) {
     }
   };
 
-  drawRingBox(504, 'rgba(239, 68, 68, 0.14)', '#ef4444'); // Ring 3
-  drawRingBox(370, 'rgba(245, 158, 11, 0.16)', '#f59e0b'); // Ring 2
-  drawRingBox(210, 'rgba(56, 189, 248, 0.16)', '#38bdf8'); // Ring 1
-  drawRingBox(64, 'rgba(34, 197, 94, 0.35)', '#4ade80'); // 128x128 Quarry Safe Hub
+  drawRingBox(504, 'rgba(239, 68, 68, 0.14)', '#ef4444');
+  drawRingBox(370, 'rgba(245, 158, 11, 0.16)', '#f59e0b');
+  drawRingBox(210, 'rgba(56, 189, 248, 0.16)', '#38bdf8');
+  drawRingBox(64, 'rgba(34, 197, 94, 0.35)', '#4ade80');
 
-  // Highway 9 loop & cardinal arteries
   mctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
   mctx.lineWidth = 1;
   mctx.strokeRect((CENTER - 242) * scale, (CENTER - 242) * scale, 484 * scale, 484 * scale);
@@ -506,7 +537,6 @@ export function renderMinimap(mctx, player, activeChunks) {
   mctx.lineTo(w, CENTER * scale);
   mctx.stroke();
 
-  // Nearby Convoy Supply dots in active chunks
   for (const c of activeChunks) {
     for (const item of c.loot) {
       if (item.type === 'convoy') {
@@ -516,7 +546,15 @@ export function renderMinimap(mctx, player, activeChunks) {
     }
   }
 
-  // Player dot
+  // Co-op teammates (green dots)
+  for (const rp of remotePlayers.values()) {
+    mctx.fillStyle = '#4ade80';
+    mctx.beginPath();
+    mctx.arc(rp.x * scale, rp.y * scale, 2.5, 0, Math.PI * 2);
+    mctx.fill();
+  }
+
+  // Local player (white dot)
   mctx.fillStyle = '#ffffff';
   mctx.beginPath();
   mctx.arc(player.x * scale, player.y * scale, 2.8, 0, Math.PI * 2);
@@ -604,6 +642,15 @@ export function renderFrame(ctx, player, activeChunks, nearbyLoot, nearbyDoor, o
     renderables.push({
       depth: depthOf(z.x, z.y) + 0.08,
       draw: () => drawZombie(ctx, z, camX, camY)
+    });
+  }
+
+  // Co-op teammates in viewport
+  for (const rp of remotePlayers.values()) {
+    if (rp.x < minX || rp.x > maxX || rp.y < minY || rp.y > maxY) continue;
+    renderables.push({
+      depth: depthOf(rp.x, rp.y) + 0.09,
+      draw: () => drawRemotePlayer(ctx, rp, camX, camY)
     });
   }
 
