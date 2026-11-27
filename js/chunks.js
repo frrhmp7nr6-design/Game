@@ -5,8 +5,11 @@ export const WORLD_CHUNKS = 32;
 export const MAP_SIZE = CHUNK_SIZE * WORLD_CHUNKS; // 1024
 export const CENTER = 512;
 
-export const QUARRY_X = 520;
-export const QUARRY_Y = 610;
+// Proportional 46x38 Quarry Safe Hub aligned with Rockmart Slate Corp basin
+export const QUARRY_X = 540;
+export const QUARRY_Y = 745;
+export const QUARRY_RX = 46;
+export const QUARRY_RY = 38;
 
 const chunkCache = new Map();
 
@@ -27,13 +30,20 @@ function hash2d(x, y) {
   return ((n ^ (n >> 16)) >>> 0) / 4294967296;
 }
 
+export function getQuarryCenter() {
+  return atlasState.loaded && atlasState.quarryCenter
+    ? atlasState.quarryCenter
+    : { x: QUARRY_X, y: QUARRY_Y };
+}
+
 export function isInsideQuarryHub(wx, wy) {
-  const dx = (wx - QUARRY_X) / 68;
-  const dy = (wy - QUARRY_Y) / 54;
+  const qc = getQuarryCenter();
+  const dx = (wx - qc.x) / QUARRY_RX;
+  const dy = (wy - qc.y) / QUARRY_RY;
   const angle = Math.atan2(dy, dx);
   const wobble =
-    0.12 * Math.sin(angle * 3 + 0.6) +
-    0.07 * Math.cos(angle * 5 - 1.1);
+    0.10 * Math.sin(angle * 3 + 0.6) +
+    0.06 * Math.cos(angle * 5 - 1.1);
   return Math.hypot(dx, dy) <= 1.0 + wobble;
 }
 
@@ -86,7 +96,7 @@ export function classifyRoad(wx, wy) {
   }
 
   const marbleX = 520 + (wy < 555 ? (555 - wy) * 0.14 : 0);
-  if (wy >= 252 && wy <= 625 && Math.abs(wx - marbleX) <= 1.8) {
+  if (wy >= 252 && wy <= 760 && Math.abs(wx - marbleX) <= 1.8) {
     return { tile: 3, kind: 'avenue' };
   }
 
@@ -111,8 +121,8 @@ export function classifyRoad(wx, wy) {
     const morganY = 485 + (515 - wx) * 0.42 + Math.sin(wx * 0.022) * 18;
     if (Math.abs(wy - morganY) <= 1.4) return { tile: 3, kind: 'rural' };
   }
-  if (wy > 605) {
-    const hutchinsX = 520 + (wy - 605) * 0.28 + Math.sin(wy * 0.02) * 20;
+  if (wy > 730) {
+    const hutchinsX = 540 + (wy - 730) * 0.28 + Math.sin(wy * 0.02) * 20;
     if (Math.abs(wx - hutchinsX) <= 1.4) return { tile: 3, kind: 'rural' };
   }
 
@@ -164,7 +174,8 @@ export function getZoneInfo(wx, wy) {
     return { ring: 1, name: 'Oakridge Suburbs', color: '#38bdf8' };
   }
 
-  const distFromQuarry = Math.hypot(wx - QUARRY_X, wy - QUARRY_Y);
+  const qc = getQuarryCenter();
+  const distFromQuarry = Math.hypot(wx - qc.x, wy - qc.y);
   const warp = Math.sin(wx * 0.015) * 28 + Math.cos(wy * 0.015) * 28;
   const effDist = distFromQuarry + warp;
 
@@ -455,7 +466,7 @@ function generateChunk(cx, cy) {
   const baseY = cy * CHUNK_SIZE;
 
   const usedOsmAtlas = atlasState.loaded
-    ? applyAtlasToChunk(chunk, baseX, baseY, CHUNK_SIZE, stampCompoundBuilding)
+    ? applyAtlasToChunk(chunk, baseX, baseY, CHUNK_SIZE, stampCompoundBuilding, isInsideQuarryHub)
     : false;
 
   if (!usedOsmAtlas) {
@@ -529,16 +540,17 @@ function generateChunk(cx, cy) {
     });
   }
 
-  // 1. Rockmart Slate Quarry Safe Hub Landmarks
-  if (cx >= 14 && cx <= 18 && cy >= 17 && cy <= 20) {
+  // 1. Rockmart Slate Quarry Safe Hub Landmarks (dynamically centered inside resized Quarry)
+  const qc = getQuarryCenter();
+  if (Math.abs(baseX + 16 - qc.x) <= 48 && Math.abs(baseY + 16 - qc.y) <= 48) {
     stampCompoundBuilding(chunk, {
       id: 'quarry-garage',
       name: 'Convoy Garage',
       category: 'commercial',
-      rects: [{ x1: 504, y1: 594, x2: 514, y2: 603 }],
+      rects: [{ x1: qc.x - 16, y1: qc.y - 16, x2: qc.x - 6, y2: qc.y - 7 }],
       doorSpecs: [
-        { x: 509, y: 603, state: 'unlocked', dir: { dx: 0, dy: 1 } },
-        { x: 514, y: 598, state: 'unlocked', dir: { dx: 1, dy: 0 } }
+        { x: qc.x - 11, y: qc.y - 7, state: 'unlocked', dir: { dx: 0, dy: 1 } },
+        { x: qc.x - 6, y: qc.y - 12, state: 'unlocked', dir: { dx: 1, dy: 0 } }
       ],
       seed: 0.42,
       defaultRevealed: true
@@ -548,35 +560,35 @@ function generateChunk(cx, cy) {
       id: 'quarry-depot',
       name: 'Quarry Depot',
       category: 'commercial',
-      rects: [{ x1: 526, y1: 594, x2: 536, y2: 603 }],
-      doorSpecs: [{ x: 526, y: 598, state: 'unlocked', dir: { dx: -1, dy: 0 } }],
+      rects: [{ x1: qc.x + 6, y1: qc.y - 16, x2: qc.x + 16, y2: qc.y - 7 }],
+      doorSpecs: [{ x: qc.x + 6, y: qc.y - 12, state: 'unlocked', dir: { dx: -1, dy: 0 } }],
       seed: 0.77,
       defaultRevealed: true
     });
 
-    if (cx === 16 && cy === 19) {
-      addChunkLoot(chunk, 'q-crowbar', 516.5, 608.5, {
+    const gCx = Math.floor(qc.x / CHUNK_SIZE);
+    const gCy = Math.floor(qc.y / CHUNK_SIZE);
+    if (cx === gCx && cy === gCy) {
+      addChunkLoot(chunk, 'q-crowbar', qc.x - 3.5, qc.y - 1.5, {
         name: 'Crowbar',
         type: 'weapon',
         weaponId: 'crowbar',
         color: '#38bdf8'
       });
-      addChunkLoot(chunk, 'q-beans', 517.5, 607.5, {
+      addChunkLoot(chunk, 'q-beans', qc.x - 2.5, qc.y - 2.5, {
         name: 'Canned Beans',
         type: 'food',
         hunger: 35,
         hp: 5,
         color: '#f97316'
       });
-      addChunkLoot(chunk, 'q-pick', 515.5, 609.5, {
+      addChunkLoot(chunk, 'q-pick', qc.x - 4.5, qc.y - 0.5, {
         name: 'Lockpick Set',
         type: 'tool',
         toolId: 'lockpick',
         color: '#fbbf24'
       });
-    }
-    if (cx === 16 && cy === 18) {
-      addChunkLoot(chunk, 'q-med', 530.5, 598.5, {
+      addChunkLoot(chunk, 'q-med', qc.x + 10.5, qc.y - 11.5, {
         name: 'First Aid Kit',
         type: 'med',
         hunger: 0,
@@ -586,7 +598,7 @@ function generateChunk(cx, cy) {
     }
   }
 
-  // 2. Rockmart Police Precinct
+  // 2. Rockmart Police Precinct (guaranteed so Police Radios can be looted)
   if (cx === 17 && cy === 14) {
     stampCompoundBuilding(chunk, {
       id: 'rockmart-pd',
