@@ -2,10 +2,12 @@ import {
   TILE_W,
   TILE_H,
   MAP_SIZE,
-  CENTER,
+  QUARRY_X,
+  QUARRY_Y,
   convoyGarage,
   quarryWorkbench,
   quarryCampfire,
+  policePrecinct,
   rescueEvent,
   rescuedSpecialists,
   rotateCoords,
@@ -75,14 +77,16 @@ function drawTile(ctx, wx, wy, camX, camY, type, isHiddenInterior) {
   if (isHiddenInterior) {
     ctx.fillStyle = '#090d14';
   } else if (type === 1) {
-    ctx.fillStyle = (wx + wy) % 2 === 0 ? '#334155' : '#2d3a4f';
+    ctx.fillStyle = (wx + wy) % 2 === 0 ? '#3b4252' : '#333a48'; // Quarry limestone / concrete
   } else if (type === 3) {
-    ctx.fillStyle = (wx + wy) % 2 === 0 ? '#27272a' : '#202023';
+    ctx.fillStyle = (wx + wy) % 2 === 0 ? '#27272a' : '#202023'; // Asphalt roads
+  } else if (type === 4) {
+    ctx.fillStyle = (wx + wy) % 2 === 0 ? '#1d4ed8' : '#1e40af'; // Euharlee Creek water
   } else {
-    ctx.fillStyle = (wx + wy) % 2 === 0 ? '#1b2822' : '#17221d';
+    ctx.fillStyle = (wx + wy) % 2 === 0 ? '#1c2b21' : '#18241c'; // Georgia pine woods
   }
   ctx.fill();
-  ctx.strokeStyle = isHiddenInterior ? '#090d14' : 'rgba(15, 23, 42, 0.42)';
+  ctx.strokeStyle = isHiddenInterior ? '#090d14' : 'rgba(15, 23, 42, 0.38)';
   ctx.lineWidth = 1;
   ctx.stroke();
 }
@@ -197,13 +201,12 @@ function drawRoofCap(ctx, building, camX, camY) {
   const midY = (building.y1 + building.y2 + 1) / 2;
   const center = worldToScreen(midX, midY, camX, camY);
   ctx.font = 'bold 12px -apple-system, sans-serif';
-  ctx.fillStyle = 'rgba(203, 213, 225, 0.85)';
+  ctx.fillStyle = building.id === 'rockmart-pd' ? '#38bdf8' : 'rgba(203, 213, 225, 0.88)';
   ctx.textAlign = 'center';
   ctx.fillText(building.name.toUpperCase(), center.x, center.y - 42);
 }
 
 function drawQuarryLandmarks(ctx, camX, camY) {
-  // 1. Iron Convoy Garage
   const gPos = worldToScreen(convoyGarage.x, convoyGarage.y, camX, camY);
   if (gPos.x > -100 && gPos.x < window.innerWidth + 100) {
     ctx.beginPath();
@@ -224,7 +227,6 @@ function drawQuarryLandmarks(ctx, camX, camY) {
     ctx.fillText('IRON CONVOY', gPos.x, gPos.y - 28);
   }
 
-  // 2. Quarry Crafting Workbench inside Quarry Depot (523.5, 500.5)
   const wPos = worldToScreen(quarryWorkbench.x, quarryWorkbench.y, camX, camY);
   if (wPos.x > -100 && wPos.x < window.innerWidth + 100) {
     ctx.beginPath();
@@ -245,7 +247,6 @@ function drawQuarryLandmarks(ctx, camX, camY) {
     ctx.fillText('WORKBENCH', wPos.x, wPos.y - 22);
   }
 
-  // 3. Central Quarry Campfire
   const fPos = worldToScreen(quarryCampfire.x, quarryCampfire.y, camX, camY);
   if (fPos.x > -100 && fPos.x < window.innerWidth + 100) {
     ctx.beginPath();
@@ -303,11 +304,15 @@ function drawRescueNpc(ctx, npc, camX, camY, isRescueTarget) {
 function drawLoot(ctx, item, camX, camY, isHighlighted) {
   const pos = worldToScreen(item.x, item.y, camX, camY);
 
-  if (item.type === 'convoy' || item.type === 'heavy') {
+  if (item.type === 'convoy' || item.type === 'heavy' || item.type === 'radio') {
     ctx.beginPath();
     ctx.ellipse(pos.x, pos.y + 4, 16, 8, 0, 0, Math.PI * 2);
     ctx.strokeStyle =
-      item.type === 'heavy' ? 'rgba(251, 146, 60, 0.9)' : 'rgba(34, 211, 238, 0.8)';
+      item.type === 'heavy'
+        ? 'rgba(251, 146, 60, 0.9)'
+        : item.type === 'radio'
+        ? 'rgba(56, 189, 248, 0.95)'
+        : 'rgba(34, 211, 238, 0.8)';
     ctx.lineWidth = 2;
     ctx.stroke();
   }
@@ -331,7 +336,7 @@ function drawLoot(ctx, item, camX, camY, isHighlighted) {
 
   ctx.fillStyle = item.color;
   ctx.beginPath();
-  ctx.arc(pos.x, pos.y - 3, item.type === 'convoy' ? 8 : 7, 0, Math.PI * 2);
+  ctx.arc(pos.x, pos.y - 3, item.type === 'convoy' || item.type === 'radio' ? 8 : 7, 0, Math.PI * 2);
   ctx.fill();
   ctx.strokeStyle = '#0f172a';
   ctx.lineWidth = 1.5;
@@ -465,6 +470,31 @@ function drawPlayer(ctx, player, camX, camY, objectiveTarget) {
   ctx.fill();
   ctx.restore();
 
+  // Proximity Voice Ripple when within 28 tiles of a hidden trapped survivor!
+  if (rescueEvent.active && !rescueEvent.following) {
+    const distToNpc = Math.hypot(rescueEvent.x - player.x, rescueEvent.y - player.y);
+    if (distToNpc <= 28 && distToNpc > 2.2) {
+      const nPos = worldToScreen(rescueEvent.x, rescueEvent.y, camX, camY);
+      const ang = Math.atan2(nPos.y - pos.y, nPos.x - pos.x);
+      const vx = pos.x + Math.cos(ang) * 62;
+      const vy = pos.y - 12 + Math.sin(ang) * 42;
+      const alpha = Math.max(0.25, 1 - distToNpc / 28);
+
+      ctx.save();
+      ctx.strokeStyle = `rgba(244, 114, 182, ${alpha})`;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(vx, vy, 12, ang - 0.5, ang + 0.5);
+      ctx.stroke();
+
+      ctx.font = 'bold 10px -apple-system, sans-serif';
+      ctx.fillStyle = `rgba(251, 207, 232, ${alpha})`;
+      ctx.textAlign = 'center';
+      ctx.fillText(distToNpc < 13 ? '🗣️ "OVER HERE!"' : '👂 Faint voice...', vx, vy - 12);
+      ctx.restore();
+    }
+  }
+
   if (objectiveTarget) {
     const tPos = worldToScreen(objectiveTarget.x, objectiveTarget.y, camX, camY);
     const dist = Math.hypot(tPos.x - pos.x, tPos.y - pos.y);
@@ -590,33 +620,61 @@ export function renderMinimap(mctx, player, activeChunks) {
   const scale = w / MAP_SIZE;
   mctx.clearRect(0, 0, w, h);
 
-  const drawRingBox = (radius, fill, stroke) => {
-    const x = (CENTER - radius) * scale;
-    const size = radius * 2 * scale;
-    mctx.fillStyle = fill;
-    mctx.fillRect(x, x, size, size);
-    if (stroke) {
-      mctx.strokeStyle = stroke;
-      mctx.lineWidth = 1;
-      mctx.strokeRect(x, x, size, size);
-    }
-  };
+  // Pine forest terrain base
+  mctx.fillStyle = '#14221a';
+  mctx.fillRect(0, 0, w, h);
 
-  drawRingBox(504, 'rgba(239, 68, 68, 0.14)', '#ef4444');
-  drawRingBox(370, 'rgba(245, 158, 11, 0.16)', '#f59e0b');
-  drawRingBox(210, 'rgba(56, 189, 248, 0.16)', '#38bdf8');
-  drawRingBox(64, 'rgba(34, 197, 94, 0.35)', '#4ade80');
-
-  mctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
-  mctx.lineWidth = 1;
-  mctx.strokeRect((CENTER - 242) * scale, (CENTER - 242) * scale, 484 * scale, 484 * scale);
+  // Winding Euharlee Creek (blue ribbon down east side)
+  mctx.strokeStyle = '#2563eb';
+  mctx.lineWidth = 2;
   mctx.beginPath();
-  mctx.moveTo(CENTER * scale, 0);
-  mctx.lineTo(CENTER * scale, h);
-  mctx.moveTo(0, CENTER * scale);
-  mctx.lineTo(w, CENTER * scale);
+  for (let wy = 0; wy <= MAP_SIZE; wy += 32) {
+    const cx = 635 + Math.sin(wy * 0.018) * 34 + Math.cos(wy * 0.045) * 14;
+    if (wy === 0) mctx.moveTo(cx * scale, wy * scale);
+    else mctx.lineTo(cx * scale, wy * scale);
+  }
   mctx.stroke();
 
+  // Organic Road Network (US-278, Marble St, Piedmont Ave, Morgan Valley Rd, Hutchins Mtn Rd)
+  mctx.strokeStyle = '#64748b';
+  mctx.lineWidth = 1.5;
+  // US-278
+  mctx.beginPath();
+  for (let wx = 0; wx <= MAP_SIZE; wx += 32) {
+    const wy = 252 + Math.sin(wx * 0.009) * 14;
+    if (wx === 0) mctx.moveTo(wx * scale, wy * scale);
+    else mctx.lineTo(wx * scale, wy * scale);
+  }
+  mctx.stroke();
+
+  // S Marble St & Piedmont Ave
+  mctx.beginPath();
+  mctx.moveTo(520 * scale, 625 * scale);
+  mctx.lineTo(568 * scale, 245 * scale);
+  mctx.moveTo(598 * scale, 530 * scale);
+  mctx.lineTo(598 * scale, 250 * scale);
+  // Morgan Valley Rd
+  mctx.moveTo(515 * scale, 485 * scale);
+  mctx.lineTo(140 * scale, 645 * scale);
+  // Hutchins Mtn Rd
+  mctx.moveTo(520 * scale, 605 * scale);
+  mctx.lineTo(635 * scale, 1010 * scale);
+  mctx.stroke();
+
+  // Asymmetrical Rockmart Slate Quarry Hub (south-central)
+  mctx.fillStyle = 'rgba(34, 197, 94, 0.35)';
+  mctx.strokeStyle = '#4ade80';
+  mctx.lineWidth = 1.2;
+  mctx.beginPath();
+  mctx.ellipse(QUARRY_X * scale, QUARRY_Y * scale, 68 * scale, 54 * scale, -0.15, 0, Math.PI * 2);
+  mctx.fill();
+  mctx.stroke();
+
+  // Rockmart Police Precinct marker (cyan badge in Downtown)
+  mctx.fillStyle = '#38bdf8';
+  mctx.fillRect(policePrecinct.x * scale - 2, policePrecinct.y * scale - 2, 4, 4);
+
+  // Active chunk supply dots
   for (const c of activeChunks) {
     for (const item of c.loot) {
       if (item.type === 'convoy' || item.type === 'heavy') {
@@ -624,15 +682,10 @@ export function renderMinimap(mctx, player, activeChunks) {
         mctx.fillRect(item.x * scale - 1.5, item.y * scale - 1.5, 3, 3);
       }
     }
-    for (const z of c.zombies) {
-      if (z.isBoss) {
-        mctx.fillStyle = '#e879f9';
-        mctx.fillRect(z.x * scale - 2, z.y * scale - 2, 4, 4);
-      }
-    }
   }
 
-  if (rescueEvent.active && !rescueEvent.following) {
+  // Trapped survivor ONLY shows on minimap when Police Radio is actively receiving their distress signal!
+  if (rescueEvent.active && !rescueEvent.following && rescueEvent.radioPingTimer > 0) {
     const pulse = 3 + Math.sin(performance.now() / 160) * 1.5;
     mctx.strokeStyle = '#f472b6';
     mctx.lineWidth = 1.5;
