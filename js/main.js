@@ -1,5 +1,6 @@
 import {
-  CENTER,
+  QUARRY_X,
+  QUARRY_Y,
   camera,
   rotateCamera,
   convoyGarage,
@@ -14,6 +15,8 @@ import {
   getNearbyLootList
 } from './map.js';
 import {
+  isInsideQuarryHub,
+  getTileAt,
   getActiveChunks,
   getZoneInfo,
   openedDoors,
@@ -27,6 +30,8 @@ import {
   applyArchetypeLoadout,
   initInventory,
   openCraftingBench,
+  hasPoliceRadio,
+  scanPoliceRadio,
   grabLootItem,
   dropHeavyCrate,
   deliverConvoySupplies,
@@ -78,11 +83,12 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
+// Spawn inside the offset Rockmart Slate Quarry Safe Hub (518, 608)
 const player = {
-  x: 510.5,
-  y: 510.5,
+  x: 518.5,
+  y: 608.5,
   radius: 0.28,
-  angle: Math.PI / 4,
+  angle: -Math.PI / 4,
   walkSpeed: 4.5,
   sprintSpeed: 7.6,
   archetype: 'bruiser',
@@ -162,7 +168,7 @@ document.querySelectorAll('.arch-btn').forEach((btn) => {
     archBadge.textContent = arch.toUpperCase();
     archModal.classList.add('hidden');
     player.started = true;
-    showToast(`🚨 Flare spotted! Rescue ${rescueEvent.name} in Ring 1!`);
+    showToast('Head north up S Marble St to raid Rockmart Police Precinct for Radios!');
   });
 });
 
@@ -260,7 +266,7 @@ function handleConvoyLoad() {
     gameOverEl.querySelector('h1').style.color = '#4ade80';
     gameOverEl.querySelector('h1').textContent = 'IRON CONVOY LAUNCHED!';
     gameOverEl.querySelector('p').textContent =
-      `Act 1 Complete! Your armored convoy breached the Quarantine Perimeter with ${convoyGarage.specialists} Quarry Specialists.`;
+      `Act 1 Complete! Your armored convoy departed Rockmart Quarry with ${convoyGarage.specialists} Specialists.`;
     gameOverEl.querySelector('button').textContent = 'Continue Roaming Act 1';
     gameOverEl.querySelector('button').onclick = () => gameOverEl.classList.remove('show');
     gameOverEl.classList.add('show');
@@ -269,7 +275,7 @@ function handleConvoyLoad() {
 
   const added = deliverConvoySupplies(player);
   if (added === 0) {
-    showToast('Scavenge Supplies, Heavy Crates, or Ring 3 Juggernaut Cores!');
+    showToast('Scavenge Supplies or Heavy Crates in Rockmart!');
     return;
   }
 
@@ -287,7 +293,7 @@ function handleSpecialAction() {
   if (player.dead) return;
   if (canRescueNow && rescueEvent.active && !rescueEvent.following) {
     rescueEvent.following = true;
-    showToast(`🏃 Escorting ${rescueEvent.name} back to the Quarry Safe Hub!`);
+    showToast(`🏃 Escorting ${rescueEvent.name} back to Rockmart Quarry Hub!`);
     return;
   }
   if (nearWorkbench) {
@@ -296,6 +302,10 @@ function handleSpecialAction() {
   }
   if (player.carryingCrate) {
     dropHeavyCrate(player);
+    return;
+  }
+  if (hasPoliceRadio()) {
+    scanPoliceRadio(player);
   }
 }
 
@@ -322,7 +332,7 @@ initInput(canvas, player, {
 
 function getObjectiveTarget() {
   if (rescueEvent.active && rescueEvent.following) {
-    return { x: CENTER, y: CENTER, isGarage: true, color: '#f472b6' };
+    return { x: QUARRY_X, y: QUARRY_Y, isGarage: true, color: '#f472b6' };
   }
   if (
     convoyGarage.points >= convoyGarage.targetPoints ||
@@ -332,11 +342,16 @@ function getObjectiveTarget() {
     return { x: convoyGarage.x, y: convoyGarage.y, isGarage: true, color: '#4ade80' };
   }
 
+  // Only guide toward trapped survivor if Police Radio actively received their distress signal!
+  if (rescueEvent.active && !rescueEvent.following && rescueEvent.radioPingTimer > 0) {
+    return { x: rescueEvent.x, y: rescueEvent.y, isGarage: false, color: '#f472b6' };
+  }
+
   const lootList = getNearbyLootList(activeChunks);
   let closest = null;
   let bestDist = Infinity;
   for (const item of lootList) {
-    if (item.type === 'convoy' || item.type === 'heavy') {
+    if (item.type === 'convoy' || item.type === 'heavy' || item.type === 'radio') {
       const d = Math.hypot(item.x - player.x, item.y - player.y);
       if (d < bestDist) {
         bestDist = d;
@@ -344,16 +359,14 @@ function getObjectiveTarget() {
           x: item.x,
           y: item.y,
           isGarage: false,
-          color: item.type === 'heavy' ? '#fb923c' : '#22d3ee'
+          color:
+            item.type === 'heavy'
+              ? '#fb923c'
+              : item.type === 'radio'
+              ? '#38bdf8'
+              : '#22d3ee'
         };
       }
-    }
-  }
-
-  if (rescueEvent.active && !rescueEvent.following) {
-    const flareDist = Math.hypot(rescueEvent.x - player.x, rescueEvent.y - player.y);
-    if (!closest || flareDist < bestDist * 1.4) {
-      return { x: rescueEvent.x, y: rescueEvent.y, isGarage: false, color: '#f472b6' };
     }
   }
   return closest;
@@ -363,6 +376,10 @@ function update(dt) {
   if (!player.started || player.dead) return;
 
   activeChunks = getActiveChunks(player.x, player.y, 1);
+
+  if (rescueEvent.radioPingTimer > 0) {
+    rescueEvent.radioPingTimer = Math.max(0, rescueEvent.radioPingTimer - dt);
+  }
 
   let sx = sticks.move.dx;
   let sy = sticks.move.dy;
@@ -419,6 +436,10 @@ function update(dt) {
     if (player.carryingCrate) {
       speed *= player.archetype === 'scavenger' ? 0.85 : 0.65;
     }
+    // Wading through shallow Euharlee Creek water slows movement by 25%
+    if (getTileAt(Math.floor(player.x), Math.floor(player.y)) === 4) {
+      speed *= 0.75;
+    }
 
     const rx = sx + sy * 2;
     const ry = sy * 2 - sx;
@@ -453,6 +474,7 @@ function update(dt) {
     player.angle = Math.atan2(sticks.look.dy, sticks.look.dx);
   }
 
+  // Escorting rescued survivor back inside the irregular Rockmart Quarry Safe Hub
   if (rescueEvent.active && rescueEvent.following) {
     const distToPlayer = Math.hypot(player.x - rescueEvent.x, player.y - rescueEvent.y);
     if (distToPlayer > 1.35) {
@@ -464,20 +486,20 @@ function update(dt) {
       if (canWalkTo(rescueEvent.x, ny, 0.25, activeChunks)) rescueEvent.y = ny;
     }
 
-    if (Math.abs(rescueEvent.x - CENTER) <= 62 && Math.abs(rescueEvent.y - CENTER) <= 62) {
+    if (isInsideQuarryHub(rescueEvent.x, rescueEvent.y)) {
       convoyGarage.specialists += 1;
       const slotOffset = rescuedSpecialists.length * 1.8;
       rescuedSpecialists.push({
         name: rescueEvent.name,
-        x: 504 + (slotOffset % 8),
-        y: 507 + Math.floor(slotOffset / 8) * 1.8
+        x: 512 + (slotOffset % 8),
+        y: 605 + Math.floor(slotOffset / 8) * 1.8
       });
       broadcastWorldEvent({
         kind: 'convoy',
         points: convoyGarage.points,
         specialists: convoyGarage.specialists
       });
-      showToast(`🎉 ${rescueEvent.name} joined Quarry Camp! (+1 Convoy Delivery Bonus)`);
+      showToast(`🎉 ${rescueEvent.name} joined Rockmart Quarry! (+1 Convoy Delivery Bonus)`);
       spawnNextRescueFlare();
     }
   }
@@ -493,7 +515,7 @@ function update(dt) {
     gameOverEl.querySelector('p').textContent =
       player.hunger === 0
         ? 'Eat stored rations from your backpack before fullness hits 0%.'
-        : 'Return to the Quarry Campfire to heal up between Threat Ring runs.';
+        : 'Return to the Quarry Campfire to heal up between town runs.';
     gameOverEl.querySelector('button').textContent = 'Respawn at Quarry';
     gameOverEl.querySelector('button').onclick = () => location.reload();
     gameOverEl.classList.add('show');
@@ -514,10 +536,12 @@ function update(dt) {
     missionSubEl.textContent = 'CONVOY READY! Return to Quarry Garage & tap LAUNCH CONVOY!';
   } else if (rescueEvent.active && rescueEvent.following) {
     missionSubEl.textContent = `Escorting ${rescueEvent.name} — lead them inside the Quarry gates!`;
+  } else if (rescueEvent.active && rescueEvent.radioPingTimer > 0) {
+    missionSubEl.textContent = `📻 ${rescueEvent.name}: ${rescueEvent.callout}`;
   } else if (totalCarried > 0) {
     missionSubEl.textContent = `Hauling +${totalCarried} supplies — return to Quarry Garage!`;
   } else {
-    missionSubEl.textContent = `Flare: ${rescueEvent.name} at (${Math.floor(rescueEvent.x)}, ${Math.floor(rescueEvent.y)})`;
+    missionSubEl.textContent = 'Search Rockmart or loot Police Radios (568, 467) to find survivors';
   }
   missionFillEl.style.width = `${(convoyGarage.points / convoyGarage.targetPoints) * 100}%`;
 
@@ -537,6 +561,9 @@ function update(dt) {
     specialBtn.classList.add('visible');
   } else if (player.carryingCrate) {
     specialBtn.innerHTML = 'DROP<br/>CRATE';
+    specialBtn.classList.add('visible');
+  } else if (hasPoliceRadio() && rescueEvent.active && !rescueEvent.following) {
+    specialBtn.innerHTML = 'SCAN<br/>RADIO';
     specialBtn.classList.add('visible');
   } else {
     specialBtn.classList.remove('visible');
