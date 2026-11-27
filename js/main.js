@@ -2,7 +2,6 @@ import {
   QUARRY_X,
   QUARRY_Y,
   getQuarryCenter,
-  syncQuarryLandmarks,
   camera,
   rotateCamera,
   convoyGarage,
@@ -20,14 +19,12 @@ import {
   isInsideQuarryHub,
   getTileAt,
   getActiveChunks,
-  clearChunkCache,
   getZoneInfo,
   openedDoors,
   doorDamage,
   lootedIds,
   killedZombieIds
 } from './chunks.js';
-import { initAtlas, atlasState } from './atlas.js';
 import { sticks, keys, sprintHeld, initInput } from './input.js';
 import {
   inventory,
@@ -87,7 +84,6 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
-// Spawn inside the resized 46x38 Rockmart Slate Quarry Safe Hub (538.5, 743.5)
 const player = {
   x: QUARRY_X - 1.5,
   y: QUARRY_Y - 1.5,
@@ -122,52 +118,6 @@ let nearWorkbench = false;
 
 const { toggleBag } = initInventory(player);
 spawnNextRescueFlare();
-
-function ensurePlayerUnstuck() {
-  if (canWalkTo(player.x, player.y, player.radius, activeChunks)) return;
-  for (let r = 1; r <= 14; r++) {
-    for (let dy = -r; dy <= r; dy++) {
-      for (let dx = -r; dx <= r; dx++) {
-        if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
-        const tx = Math.floor(player.x) + dx + 0.5;
-        const ty = Math.floor(player.y) + dy + 0.5;
-        if (canWalkTo(tx, ty, player.radius, activeChunks)) {
-          player.x = tx;
-          player.y = ty;
-          return;
-        }
-      }
-    }
-  }
-}
-
-function refreshAtlas(force = false) {
-  coordsEl.textContent = '🌐 Loading Rockmart OSM...';
-  initAtlas((state) => {
-    const wasInsideQuarry = isInsideQuarryHub(player.x, player.y);
-    syncQuarryLandmarks();
-    clearChunkCache();
-    if (wasInsideQuarry) {
-      const qc = getQuarryCenter();
-      player.x = qc.x - 1.5;
-      player.y = qc.y - 1.5;
-    }
-    activeChunks = getActiveChunks(player.x, player.y, 1);
-    ensurePlayerUnstuck();
-    if (state.loaded) {
-      showToast(`🗺️ Loaded ${state.features.length} real Rockmart OSM features (${state.source})!`);
-    } else {
-      showToast(`⚠️ OSM mirrors busy (${state.error}) — tap location pill to retry`);
-    }
-  }, force);
-}
-
-coordsEl.style.pointerEvents = 'auto';
-coordsEl.style.cursor = 'pointer';
-coordsEl.title = 'Tap to reload real Rockmart OSM map data';
-coordsEl.addEventListener('click', () => refreshAtlas(true));
-
-refreshAtlas(false);
 
 closeCraftBtn.addEventListener('click', () => {
   craftModal.classList.remove('open');
@@ -218,12 +168,7 @@ document.querySelectorAll('.arch-btn').forEach((btn) => {
     archBadge.textContent = arch.toUpperCase();
     archModal.classList.add('hidden');
     player.started = true;
-    ensurePlayerUnstuck();
-    if (atlasState.loaded) {
-      showToast(`🗺️ Live Rockmart OSM active (${atlasState.features.length} features)!`);
-    } else {
-      showToast('Head north up S Marble St to raid Rockmart Police Precinct for Radios!');
-    }
+    showToast('Exit the north Quarry gate onto S Marble St to explore Downtown & Suburbs!');
   });
 });
 
@@ -595,7 +540,7 @@ function update(dt) {
   } else if (totalCarried > 0) {
     missionSubEl.textContent = `Hauling +${totalCarried} supplies — return to Quarry Garage!`;
   } else {
-    missionSubEl.textContent = 'Search Rockmart or loot Police Radios (568, 467) to find survivors';
+    missionSubEl.textContent = 'Search Downtown (1125, 916) for Police Radios or scavenge supplies';
   }
   missionFillEl.style.width = `${(convoyGarage.points / convoyGarage.targetPoints) * 100}%`;
 
@@ -688,8 +633,7 @@ function update(dt) {
   stamVal.textContent = `${Math.ceil(player.stamina)}%`;
   foodVal.textContent = `${Math.ceil(player.hunger)}%`;
   coordsEl.style.color = zone.color;
-  const osmTag = atlasState.loaded ? 'OSM' : 'SIM';
-  coordsEl.textContent = `${zone.name} [${osmTag}] • ${Math.floor(player.x)},${Math.floor(player.y)}`;
+  coordsEl.textContent = `${zone.name} • ${Math.floor(player.x)},${Math.floor(player.y)}`;
 }
 
 let lastTime = performance.now();
