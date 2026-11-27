@@ -352,8 +352,56 @@ function drawRoofCap(ctx, building, camX, camY) {
     roofR: '#1e293b'
   };
 
-  const rects = building.rects || [{ x1: building.x1, y1: building.y1, x2: building.x2, y2: building.y2 }];
   const wallH = 42;
+
+  // For true angled OSM polygon footprints, draw a pitched/parapet roof matching the exact polygon vertices
+  if (building.polygonPts && building.polygonPts.length >= 3) {
+    const pts = building.polygonPts;
+    const screenPts = pts.map((pt) => worldToScreen(pt.x, pt.y, camX, camY));
+    const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+    const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+    const peak = worldToScreen(cx, cy, camX, camY);
+    const peakH = building.category === 'commercial' ? wallH + 6 : wallH + 16;
+
+    // Roof base deck
+    ctx.fillStyle = pal.roofR;
+    ctx.beginPath();
+    screenPts.forEach((sp, i) => {
+      if (i === 0) ctx.moveTo(sp.x, sp.y - wallH);
+      else ctx.lineTo(sp.x, sp.y - wallH);
+    });
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = pal.wallL;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Pitched hip facets from each polygon edge up to the centroid peak
+    if (building.category !== 'commercial') {
+      for (let i = 0; i < screenPts.length; i++) {
+        const a = screenPts[i];
+        const b = screenPts[(i + 1) % screenPts.length];
+        ctx.fillStyle = i % 2 === 0 ? pal.roofL : pal.roofR;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y - wallH);
+        ctx.lineTo(b.x, b.y - wallH);
+        ctx.lineTo(peak.x, peak.y - peakH);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(15, 23, 42, 0.35)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+
+    ctx.font = 'bold 11px -apple-system, sans-serif';
+    ctx.fillStyle = building.id === 'rockmart-pd' ? '#38bdf8' : 'rgba(241, 245, 249, 0.94)';
+    ctx.textAlign = 'center';
+    ctx.fillText(building.name.toUpperCase(), peak.x, peak.y - peakH - 10);
+    return;
+  }
+
+  const rects = building.rects || [{ x1: building.x1, y1: building.y1, x2: building.x2, y2: building.y2 }];
 
   for (const r of rects) {
     const x1 = r.x1;
@@ -923,14 +971,15 @@ export function renderMinimap(mctx, player, activeChunks) {
   mctx.fillRect(0, 0, w, h);
 
   if (atlasState.loaded) {
+    // 1. Draw real OSM polygons (water, quarry, buildings) in 1:1 metric space
     for (const f of atlasState.features) {
       if (f.kind === 'poly') {
         if (f.props.natural === 'water' || f.props.waterway) {
           mctx.fillStyle = '#2563eb';
         } else if (f.props.landuse === 'quarry') {
-          mctx.fillStyle = 'rgba(74, 222, 128, 0.35)';
+          mctx.fillStyle = 'rgba(74, 222, 128, 0.32)';
         } else if (f.props.building) {
-          mctx.fillStyle = 'rgba(203, 213, 225, 0.45)';
+          mctx.fillStyle = 'rgba(203, 213, 225, 0.52)';
         } else {
           continue;
         }
@@ -944,6 +993,7 @@ export function renderMinimap(mctx, player, activeChunks) {
       }
     }
 
+    // 2. Draw real OSM roads & waterways
     for (const f of atlasState.features) {
       if (f.kind !== 'line') continue;
       if (f.props.waterway) {
@@ -1005,9 +1055,9 @@ export function renderMinimap(mctx, player, activeChunks) {
     mctx.stroke();
   }
 
-  // Proportional Quarry Safe Hub ring aligned with getQuarryCenter()
+  // Highlight Quarry Safe Hub boundary
   const qc = getQuarryCenter();
-  mctx.fillStyle = 'rgba(34, 197, 94, 0.25)';
+  mctx.fillStyle = 'rgba(34, 197, 94, 0.22)';
   mctx.strokeStyle = '#4ade80';
   mctx.lineWidth = 1.2;
   mctx.beginPath();
@@ -1015,8 +1065,9 @@ export function renderMinimap(mctx, player, activeChunks) {
   mctx.fill();
   mctx.stroke();
 
+  const pdSpot = atlasState.policeLocation || policePrecinct;
   mctx.fillStyle = '#38bdf8';
-  mctx.fillRect(policePrecinct.x * scale - 2, policePrecinct.y * scale - 2, 4, 4);
+  mctx.fillRect(pdSpot.x * scale - 2, pdSpot.y * scale - 2, 4, 4);
 
   for (const c of activeChunks) {
     for (const item of c.loot) {
