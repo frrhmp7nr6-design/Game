@@ -42,14 +42,18 @@ export function worldToScreen(wx, wy, camX, camY) {
   };
 }
 
-// Iron Convoy War Effort Hub in Quarry Camp
 export const convoyGarage = {
   x: 501.5,
   y: 501.5,
   points: 0,
   targetPoints: 20,
   specialists: 0,
-  complete: false
+  launched: false
+};
+
+export const quarryWorkbench = {
+  x: 523.5,
+  y: 500.5
 };
 
 export const quarryCampfire = {
@@ -57,7 +61,12 @@ export const quarryCampfire = {
   y: 512.5
 };
 
-// Dynamic Neighbor Rescue Flare State
+export const campUpgrades = {
+  medicTent: false,
+  armory: false,
+  watchtower: false
+};
+
 const SPECIALIST_ROLES = [
   'Mechanic Dale',
   'Nurse Clara',
@@ -78,15 +87,13 @@ export const rescueEvent = {
 
 export const rescuedSpecialists = [];
 
-export function spawnNextRescueFlare(player) {
+export function spawnNextRescueFlare() {
   const id = rescueEvent.id + 1;
   const angle = Math.random() * Math.PI * 2;
-  // Spawn 85 to 165 tiles away from center (Ring 1 / early Ring 2)
   const dist = 85 + Math.random() * 80;
   let fx = Math.round(CENTER + Math.cos(angle) * dist) + 0.5;
   let fy = Math.round(CENTER + Math.sin(angle) * dist) + 0.5;
 
-  // Nudge off any wall tile if needed
   for (let tries = 0; tries < 12; tries++) {
     if (getTileAt(Math.floor(fx), Math.floor(fy)) !== 2) break;
     fx += 1;
