@@ -1,9 +1,8 @@
-import { worldLoot, radioTower } from './map.js';
+import { convoyGarage } from './map.js';
+import { lootedIds, droppedLoot } from './chunks.js';
 import { WEAPONS } from './combat.js';
 
-export const BAG_CAPACITY = 8;
 export const inventory = [];
-
 let toastTimer = null;
 
 export function showToast(msg) {
@@ -12,6 +11,61 @@ export function showToast(msg) {
   toastEl.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2200);
+}
+
+export function applyArchetypeLoadout(player, arch) {
+  player.archetype = arch;
+  inventory.length = 0;
+
+  if (arch === 'bruiser') {
+    player.maxHp = 140;
+    player.hp = 140;
+    player.bagCapacity = 8;
+    player.equippedWeapon = 'crowbar';
+    inventory.push({
+      id: 'starter-crowbar',
+      name: 'Crowbar',
+      type: 'weapon',
+      weaponId: 'crowbar',
+      color: '#38bdf8'
+    });
+  } else if (arch === 'medic') {
+    player.maxHp = 105;
+    player.hp = 105;
+    player.bagCapacity = 8;
+    player.equippedWeapon = 'fists';
+    inventory.push(
+      { id: 'starter-med-1', name: 'Field Bandage', type: 'med', hunger: 0, hp: 45, color: '#f8fafc' },
+      { id: 'starter-med-2', name: 'Field Bandage', type: 'med', hunger: 0, hp: 45, color: '#f8fafc' }
+    );
+  } else if (arch === 'scavenger') {
+    player.maxHp = 100;
+    player.hp = 100;
+    player.bagCapacity = 10;
+    player.equippedWeapon = 'fists';
+    inventory.push({
+      id: 'starter-masterpick',
+      name: 'Master Lockpick',
+      type: 'tool',
+      toolId: 'lockpick',
+      infinite: true,
+      color: '#fbbf24'
+    });
+  } else if (arch === 'marksman') {
+    player.maxHp = 95;
+    player.hp = 95;
+    player.bagCapacity = 8;
+    player.equippedWeapon = 'pistol';
+    inventory.push({
+      id: 'starter-pistol',
+      name: '9mm Pistol',
+      type: 'weapon',
+      weaponId: 'pistol',
+      color: '#94a3b8'
+    });
+  }
+
+  renderBag(player);
 }
 
 export function initInventory(player) {
@@ -36,18 +90,21 @@ export function hasLockpick() {
 export function consumeLockpick(player) {
   const idx = inventory.findIndex((i) => i.type === 'tool' && i.toolId === 'lockpick');
   if (idx === -1) return false;
-  inventory.splice(idx, 1);
-  renderBag(player);
+  if (!inventory[idx].infinite) {
+    inventory.splice(idx, 1);
+    renderBag(player);
+  }
   return true;
 }
 
 export function renderBag(player) {
+  const cap = player.bagCapacity || 8;
   const bagCount = document.getElementById('bag-count');
   const bagSlotsLabel = document.getElementById('bag-slots-label');
   const bagList = document.getElementById('bag-list');
 
-  bagCount.textContent = `${inventory.length}/${BAG_CAPACITY}`;
-  bagSlotsLabel.textContent = `${inventory.length} / ${BAG_CAPACITY} Slots`;
+  bagCount.textContent = `${inventory.length}/${cap}`;
+  bagSlotsLabel.textContent = `${inventory.length} / ${cap} Slots`;
   bagList.innerHTML = '';
 
   const eqName = WEAPONS[player.equippedWeapon]?.name || 'Fists';
@@ -59,7 +116,7 @@ export function renderBag(player) {
   if (inventory.length === 0) {
     bagList.insertAdjacentHTML(
       'beforeend',
-      `<div style="color:#64748b; font-size:12px; text-align:center; padding:12px 0;">Bag is empty. Scavenge buildings for Radio Parts & supplies.</div>`
+      `<div style="color:#64748b; font-size:12px; text-align:center; padding:12px 0;">Bag is empty. Leave the Quarry Hub to scavenge Threat Rings.</div>`
     );
     return;
   }
@@ -71,20 +128,24 @@ export function renderBag(player) {
     let desc = '';
     if (item.type === 'food') desc = `+${item.hunger}% Fullness, +${item.hp}% HP`;
     else if (item.type === 'med') desc = `+${item.hp}% Health`;
-    else if (item.type === 'part') desc = 'Mission Item • Take to SE Radio Tower';
-    else if (item.type === 'tool') desc = 'Opens locked doors silently';
+    else if (item.type === 'convoy') desc = `+${item.value} Convoy Supply • Load at Quarry Garage`;
+    else if (item.type === 'tool')
+      desc = item.infinite ? 'Reusable Scavenger Tool' : 'Opens locked doors silently';
     else if (item.type === 'weapon') {
       const w = WEAPONS[item.weaponId];
       desc = `${w.damage} DMG • ${w.type === 'ranged' ? 'Ranged' : 'Melee'}`;
     }
 
     const isEquipped = item.type === 'weapon' && player.equippedWeapon === item.weaponId;
-    const canUse = item.type === 'food' || item.type === 'med' || (item.type === 'weapon' && !isEquipped);
+    const canUse =
+      item.type === 'food' || item.type === 'med' || (item.type === 'weapon' && !isEquipped);
     const useLabel = item.type === 'med' ? 'HEAL' : item.type === 'weapon' ? 'EQUIP' : 'EAT';
 
     row.innerHTML = `
       <div class="bag-item-info">
-        <span class="bag-item-name" style="${item.type === 'part' ? 'color:#22d3ee;' : item.type === 'tool' ? 'color:#fbbf24;' : ''}">${item.name} ${isEquipped ? '<span style="color:#38bdf8;font-size:10px;">(ACTIVE)</span>' : ''}</span>
+        <span class="bag-item-name" style="${
+          item.type === 'convoy' ? 'color:#22d3ee;' : item.type === 'tool' ? 'color:#fbbf24;' : ''
+        }">${item.name} ${isEquipped ? '<span style="color:#38bdf8;font-size:10px;">(ACTIVE)</span>' : ''}</span>
         <span class="bag-item-sub">${desc}</span>
       </div>
       <div class="bag-btns">
@@ -108,18 +169,33 @@ export function renderBag(player) {
   });
 }
 
-export function grabLootAt(player, lootIndex) {
-  if (lootIndex === -1 || player.dead) return false;
-  if (inventory.length >= BAG_CAPACITY) {
+export function grabLootItem(player, item, activeChunks) {
+  if (!item || player.dead) return false;
+  const cap = player.bagCapacity || 8;
+  if (inventory.length >= cap) {
     showToast('Backpack is full!');
     return false;
   }
-  const item = worldLoot[lootIndex];
-  inventory.push(item);
-  worldLoot.splice(lootIndex, 1);
 
-  if (item.type === 'part') {
-    showToast(`📡 Found Radio Part: ${item.name}!`);
+  inventory.push(item);
+
+  // Remove from droppedLoot or chunk loot
+  const dIdx = droppedLoot.indexOf(item);
+  if (dIdx !== -1) {
+    droppedLoot.splice(dIdx, 1);
+  } else {
+    lootedIds.add(item.id);
+    for (const c of activeChunks) {
+      const idx = c.loot.indexOf(item);
+      if (idx !== -1) {
+        c.loot.splice(idx, 1);
+        break;
+      }
+    }
+  }
+
+  if (item.type === 'convoy') {
+    showToast(`🚛 Stashed ${item.name} (+${item.value} Convoy)!`);
   } else if (item.type === 'weapon' && player.equippedWeapon === 'fists') {
     player.equippedWeapon = item.weaponId;
     showToast(`Equipped ${item.name}`);
@@ -131,19 +207,19 @@ export function grabLootAt(player, lootIndex) {
   return true;
 }
 
-export function installRadioPartsFromBag(player) {
-  let installedCount = 0;
+export function deliverConvoySupplies(player) {
+  let addedPoints = 0;
   for (let i = inventory.length - 1; i >= 0; i--) {
-    if (inventory[i].type === 'part') {
-      radioTower.installedParts.push(inventory[i].name);
+    if (inventory[i].type === 'convoy') {
+      addedPoints += inventory[i].value || 1;
       inventory.splice(i, 1);
-      installedCount++;
     }
   }
-  if (installedCount > 0) {
+  if (addedPoints > 0) {
+    convoyGarage.points = Math.min(convoyGarage.targetPoints, convoyGarage.points + addedPoints);
     renderBag(player);
   }
-  return installedCount;
+  return addedPoints;
 }
 
 function useBagItem(player, idx) {
@@ -172,7 +248,7 @@ function dropBagItem(player, idx) {
     player.equippedWeapon = 'fists';
   }
 
-  worldLoot.push({
+  droppedLoot.push({
     ...item,
     x: player.x + (Math.random() - 0.5) * 0.4,
     y: player.y + (Math.random() - 0.5) * 0.4
