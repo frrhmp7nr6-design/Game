@@ -3,6 +3,10 @@ export const WORLD_CHUNKS = 32;
 export const MAP_SIZE = CHUNK_SIZE * WORLD_CHUNKS; // 1024
 export const CENTER = 512;
 
+// Offset Quarry Safe Hub centered around (520, 610) like Rockmart Slate Corp
+export const QUARRY_X = 520;
+export const QUARRY_Y = 610;
+
 const chunkCache = new Map();
 
 export const openedDoors = new Set();
@@ -18,13 +22,95 @@ function hash2d(x, y) {
   return ((n ^ (n >> 16)) >>> 0) / 4294967296;
 }
 
+// Organic irregular quarry safe-zone mask (asymmetrical limestone pit)
+export function isInsideQuarryHub(wx, wy) {
+  const dx = (wx - QUARRY_X) / 68;
+  const dy = (wy - QUARRY_Y) / 54;
+  const angle = Math.atan2(dy, dx);
+  const wobble =
+    0.12 * Math.sin(angle * 3 + 0.6) +
+    0.07 * Math.cos(angle * 5 - 1.1);
+  return Math.hypot(dx, dy) <= 1.0 + wobble;
+}
+
+function isQuarryPerimeter(wx, wy) {
+  if (!isInsideQuarryHub(wx, wy)) return false;
+  return (
+    !isInsideQuarryHub(wx + 1, wy) ||
+    !isInsideQuarryHub(wx - 1, wy) ||
+    !isInsideQuarryHub(wx, wy + 1) ||
+    !isInsideQuarryHub(wx, wy - 1)
+  );
+}
+
+// Winding Euharlee Creek running north-south east of town & quarry
+export function isCreekTile(wx, wy) {
+  const creekCenter =
+    635 +
+    Math.sin(wy * 0.018) * 34 +
+    Math.cos(wy * 0.045) * 14;
+  return Math.abs(wx - creekCenter) <= 3.2;
+}
+
+// Organic road network resembling Rockmart, GA (US-278, S Marble St, Piedmont Ave, Morgan Valley Rd, Hutchins Mtn Rd)
+export function isRoadTile(wx, wy) {
+  // 1. US-278 East-West 4-lane highway across north side (y ~ 252)
+  const us278Y = 252 + Math.sin(wx * 0.009) * 14;
+  if (Math.abs(wy - us278Y) <= 2.6) return true;
+
+  // 2. S Marble St / N Piedmont Ave corridor running north from Quarry (520,610) through Downtown Rockmart to US-278
+  const marbleX =
+    520 +
+    (wy < 555 ? (555 - wy) * 0.16 : 0) +
+    Math.sin(wy * 0.025) * 6;
+  if (wy >= 245 && wy <= 625 && Math.abs(wx - marbleX) <= 2.0) return true;
+
+  // 3. Downtown Rockmart cross streets (Elm St & College St)
+  if (wx >= 445 && wx <= 625) {
+    if (Math.abs(wy - (472 + (wx - 520) * 0.12)) <= 1.6) return true;
+    if (Math.abs(wy - (425 + (wx - 520) * 0.12)) <= 1.6) return true;
+  }
+
+  // 4. N Piedmont Ave east downtown connector
+  if (wy >= 250 && wy <= 530 && Math.abs(wx - (598 + Math.sin(wy * 0.02) * 5)) <= 1.8) {
+    return true;
+  }
+
+  // 5. Morgan Valley Rd winding southwest into rural hills
+  if (wx < 515 && wy > 460) {
+    const morganY = 485 + (515 - wx) * 0.42 + Math.sin(wx * 0.022) * 18;
+    if (Math.abs(wy - morganY) <= 1.8) return true;
+  }
+
+  // 6. Hutchins Mountain Rd winding south-southeast from Quarry
+  if (wy > 605) {
+    const hutchinsX = 520 + (wy - 605) * 0.28 + Math.sin(wy * 0.02) * 20;
+    if (Math.abs(wx - hutchinsX) <= 1.8) return true;
+  }
+
+  return false;
+}
+
 export function getZoneInfo(wx, wy) {
-  const dist = Math.max(Math.abs(wx - CENTER), Math.abs(wy - CENTER));
-  if (dist <= 64) return { ring: 0, name: 'Quarry Safe Hub', color: '#4ade80' };
-  if (dist <= 210) return { ring: 1, name: 'Ring 1: Oakridge', color: '#38bdf8' };
-  if (dist <= 370) return { ring: 2, name: 'Ring 2: Hwy 9 Midtown', color: '#f59e0b' };
-  if (dist <= 503) return { ring: 3, name: 'Ring 3: Quarantine', color: '#ef4444' };
-  return { ring: 4, name: 'Quarantine Wall', color: '#94a3b8' };
+  if (wx < 10 || wy < 10 || wx >= MAP_SIZE - 10 || wy >= MAP_SIZE - 10) {
+    return { ring: 4, name: 'Quarantine Wall', color: '#94a3b8' };
+  }
+  if (isInsideQuarryHub(wx, wy)) {
+    return { ring: 0, name: 'Rockmart Quarry Hub', color: '#4ade80' };
+  }
+
+  // Organic threat gradient radiating outward from Quarry + downtown
+  const distFromQuarry = Math.hypot(wx - QUARRY_X, wy - QUARRY_Y);
+  const warp = Math.sin(wx * 0.015) * 28 + Math.cos(wy * 0.015) * 28;
+  const effDist = distFromQuarry + warp;
+
+  if (effDist <= 225) {
+    return { ring: 1, name: 'Downtown & Elm St', color: '#38bdf8' };
+  }
+  if (effDist <= 395) {
+    return { ring: 2, name: 'US-278 & Valley', color: '#f59e0b' };
+  }
+  return { ring: 3, name: 'Outer Quarantine', color: '#ef4444' };
 }
 
 function stampBuilding(chunk, id, name, x1, y1, x2, y2, doorSpecs, defaultRevealed = false) {
@@ -75,35 +161,39 @@ function generateChunk(cx, cy) {
   const baseX = cx * CHUNK_SIZE;
   const baseY = cy * CHUNK_SIZE;
 
+  // Tile types: 0 = pine grass, 1 = concrete/quarry floor, 2 = wall/fence, 3 = asphalt road, 4 = creek water
   for (let ly = 0; ly < CHUNK_SIZE; ly++) {
     const wy = baseY + ly;
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
       const wx = baseX + lx;
-      const d = Math.max(Math.abs(wx - CENTER), Math.abs(wy - CENTER));
 
-      if (d >= 504) {
+      // Outer Quarantine Perimeter Wall
+      if (wx < 10 || wy < 10 || wx >= MAP_SIZE - 10 || wy >= MAP_SIZE - 10) {
         tiles[ly * CHUNK_SIZE + lx] = 2;
         continue;
       }
 
-      if (d === 64) {
-        const isGate =
-          (Math.abs(wx - CENTER) <= 2 && (wy === 448 || wy === 576)) ||
-          (Math.abs(wy - CENTER) <= 2 && (wx === 448 || wx === 576));
-        tiles[ly * CHUNK_SIZE + lx] = isGate ? 3 : 2;
+      // Roads override creek (bridges) and quarry gates
+      if (isRoadTile(wx, wy)) {
+        tiles[ly * CHUNK_SIZE + lx] = 3;
         continue;
       }
 
-      if (d < 64) {
+      // Irregular Quarry Safe Hub perimeter wall (with road gates open)
+      if (isQuarryPerimeter(wx, wy)) {
+        tiles[ly * CHUNK_SIZE + lx] = 2;
+        continue;
+      }
+
+      // Quarry interior slate floor
+      if (isInsideQuarryHub(wx, wy)) {
         tiles[ly * CHUNK_SIZE + lx] = 1;
         continue;
       }
 
-      const onRingRoad = d >= 240 && d <= 245;
-      const onCardinalRoad =
-        (wx >= CENTER - 2 && wx <= CENTER + 2) || (wy >= CENTER - 2 && wy <= CENTER + 2);
-      if (onRingRoad || onCardinalRoad) {
-        tiles[ly * CHUNK_SIZE + lx] = 3;
+      // Winding Euharlee Creek (shallow water slows movement)
+      if (isCreekTile(wx, wy)) {
+        tiles[ly * CHUNK_SIZE + lx] = 4;
         continue;
       }
 
@@ -111,18 +201,19 @@ function generateChunk(cx, cy) {
     }
   }
 
-  if (cx >= 14 && cx <= 17 && cy >= 14 && cy <= 17) {
+  // 1. Rockmart Slate Quarry Safe Hub Landmarks (around 520, 610)
+  if (cx >= 14 && cx <= 18 && cy >= 17 && cy <= 20) {
     stampBuilding(
       chunk,
       'quarry-garage',
       'Convoy Garage',
-      496,
-      496,
-      506,
-      505,
+      504,
+      594,
+      514,
+      603,
       [
-        { x: 501, y: 505, state: 'unlocked' },
-        { x: 506, y: 500, state: 'unlocked' }
+        { x: 509, y: 603, state: 'unlocked' },
+        { x: 514, y: 598, state: 'unlocked' }
       ],
       true
     );
@@ -131,37 +222,37 @@ function generateChunk(cx, cy) {
       chunk,
       'quarry-depot',
       'Quarry Depot',
-      518,
-      496,
-      528,
-      505,
-      [{ x: 518, y: 500, state: 'unlocked' }],
+      526,
+      594,
+      536,
+      603,
+      [{ x: 526, y: 598, state: 'unlocked' }],
       true
     );
 
-    if (cx === 15 && cy === 15) {
-      addChunkLoot(chunk, 'q-crowbar', 508.5, 508.5, {
+    if (cx === 16 && cy === 19) {
+      addChunkLoot(chunk, 'q-crowbar', 516.5, 608.5, {
         name: 'Crowbar',
         type: 'weapon',
         weaponId: 'crowbar',
         color: '#38bdf8'
       });
-      addChunkLoot(chunk, 'q-beans', 509.5, 507.5, {
+      addChunkLoot(chunk, 'q-beans', 517.5, 607.5, {
         name: 'Canned Beans',
         type: 'food',
         hunger: 35,
         hp: 5,
         color: '#f97316'
       });
-      addChunkLoot(chunk, 'q-pick', 507.5, 509.5, {
+      addChunkLoot(chunk, 'q-pick', 515.5, 609.5, {
         name: 'Lockpick Set',
         type: 'tool',
         toolId: 'lockpick',
         color: '#fbbf24'
       });
     }
-    if (cx === 16 && cy === 15) {
-      addChunkLoot(chunk, 'q-med', 522.5, 500.5, {
+    if (cx === 16 && cy === 18) {
+      addChunkLoot(chunk, 'q-med', 530.5, 598.5, {
         name: 'First Aid Kit',
         type: 'med',
         hunger: 0,
@@ -169,21 +260,126 @@ function generateChunk(cx, cy) {
         color: '#f8fafc'
       });
     }
+  }
+
+  // 2. Rockmart Police Precinct in Downtown Rockmart (Chunk 17, 14 -> around 562..575, 456..467)
+  if (cx === 17 && cy === 14) {
+    stampBuilding(
+      chunk,
+      'rockmart-pd',
+      'Rockmart Police Precinct',
+      562,
+      456,
+      574,
+      467,
+      [
+        { x: 568, y: 467, state: 'locked' },
+        { x: 562, y: 461, state: 'barricaded' }
+      ],
+      false
+    );
+
+    // Police Two-Way Radios inside Precinct Dispatch & Evidence Room!
+    addChunkLoot(chunk, 'pd-radio-1', 566.5, 459.5, {
+      name: 'Police Radio',
+      type: 'radio',
+      charges: 3,
+      color: '#38bdf8'
+    });
+    addChunkLoot(chunk, 'pd-radio-2', 570.5, 459.5, {
+      name: 'Police Radio',
+      type: 'radio',
+      charges: 3,
+      color: '#38bdf8'
+    });
+    addChunkLoot(chunk, 'pd-pistol', 571.5, 463.5, {
+      name: '9mm Pistol',
+      type: 'weapon',
+      weaponId: 'pistol',
+      color: '#94a3b8'
+    });
+
+    // Undead Police Deputies guarding the Precinct
+    addChunkZombie(chunk, 'z-pd-1', 565.5, 463.5, 2, false);
+    addChunkZombie(chunk, 'z-pd-2', 571.5, 460.5, 2, false);
     return chunk;
   }
 
+  // 3. Landmark Businesses along Downtown Rockmart & US-278
+  if (cx === 15 && cy === 14) {
+    stampBuilding(chunk, 'hometown-pizza', 'Hometown Pizza', 492, 454, 504, 464, [
+      { x: 498, y: 464, state: 'unlocked' }
+    ]);
+    addChunkLoot(chunk, 'pizza-food', 498.5, 458.5, {
+      name: 'MRE Pack',
+      type: 'food',
+      hunger: 55,
+      hp: 10,
+      color: '#eab308'
+    });
+    addChunkLoot(chunk, 'pizza-sup', 495.5, 457.5, {
+      name: 'Scrap Plating',
+      type: 'convoy',
+      value: 1,
+      color: '#22d3ee'
+    });
+    addChunkZombie(chunk, 'z-pizza-1', 501.5, 458.5, 1, false);
+    return chunk;
+  }
+
+  if (cx === 14 && cy === 8) {
+    stampBuilding(chunk, 'low-true-hw', 'Low True Hardware', 456, 264, 470, 276, [
+      { x: 463, y: 264, state: 'locked' }
+    ]);
+    addChunkLoot(chunk, 'hw-axe', 460.5, 270.5, {
+      name: 'Fire Axe',
+      type: 'weapon',
+      weaponId: 'axe',
+      color: '#f43f5e'
+    });
+    addChunkLoot(chunk, 'hw-crate', 466.5, 271.5, {
+      name: 'Heavy Supply Crate',
+      type: 'heavy',
+      value: 4,
+      color: '#fb923c'
+    });
+    addChunkZombie(chunk, 'z-hw-1', 463.5, 272.5, 2, false);
+    return chunk;
+  }
+
+  if (cx === 25 && cy === 7) {
+    stampBuilding(chunk, 'walmart-sc', 'Walmart Supercenter', 804, 224, 822, 240, [
+      { x: 813, y: 240, state: 'barricaded' }
+    ]);
+    addChunkLoot(chunk, 'wm-core', 813.5, 231.5, {
+      name: 'Prototype Convoy Core',
+      type: 'heavy',
+      value: 6,
+      color: '#e879f9'
+    });
+    addChunkZombie(chunk, 'z-wm-boss', 813.5, 228.5, 3, true);
+    return chunk;
+  }
+
+  // 4. Procedural Buildings & Encounters outside Quarry Hub
   const midX = baseX + 16;
   const midY = baseY + 16;
   const zone = getZoneInfo(midX, midY);
-  if (zone.ring === 4) return chunk;
+  if (zone.ring === 0 || zone.ring === 4) return chunk;
+
+  // Check if chunk center is clear of roads, quarry, and creek
+  let clearForBuilding = true;
+  for (let sy = baseY + 4; sy <= baseY + 26; sy += 4) {
+    for (let sx = baseX + 4; sx <= baseX + 26; sx += 4) {
+      if (isRoadTile(sx, sy) || isInsideQuarryHub(sx, sy) || isCreekTile(sx, sy)) {
+        clearForBuilding = false;
+        break;
+      }
+    }
+  }
 
   const seed = hash2d(cx, cy);
-  const avoidsRoads =
-    Math.abs(midX - CENTER) > 22 &&
-    Math.abs(midY - CENTER) > 22 &&
-    Math.abs(Math.max(Math.abs(midX - CENTER), Math.abs(midY - CENTER)) - 242) > 20;
-
-  if (avoidsRoads && seed > 0.32) {
+  if (clearForBuilding && seed > 0.38) {
     const bw = 8 + Math.floor(hash2d(cx + 11, cy) * 6);
     const bh = 8 + Math.floor(hash2d(cx, cy + 17) * 6);
     const bx1 = baseX + 4 + Math.floor(hash2d(cx + 3, cy + 5) * (24 - bw));
@@ -205,10 +401,10 @@ function generateChunk(cx, cy) {
 
     const bNames =
       zone.ring === 1
-        ? ['Suburban House', 'Oakridge Home', 'Corner Store', 'Cul-de-Sac House']
+        ? ['Elm St Bungalow', 'Silver Comet Depot', 'Piedmont House', 'Marble St Shop']
         : zone.ring === 2
-        ? ['Mega-Mart', 'Midtown Precinct', 'Hwy 9 Gas Station', 'Auto Garage']
-        : ['St. Jude Wing', 'Quarantine Bunker', 'SWAT Armory', 'Military Outpost'];
+        ? ['US-278 Diner', 'Morgan Valley Barn', 'Van Wert Garage', 'County Outpost']
+        : ['Quarantine Bunker', 'National Guard Tent', 'Armored Checkpoint', 'Perimeter Armory'];
 
     const bName = bNames[Math.floor(hash2d(cx * 3, cy * 7) * bNames.length)];
     const bId = `b-${cx}-${cy}`;
@@ -234,21 +430,20 @@ function generateChunk(cx, cy) {
 
     const secRoll = hash2d(cx + 41, cy + 43);
     let secItem;
-    if (secRoll < 0.25) {
+    if (secRoll < 0.22) {
       secItem =
         zone.ring >= 2
           ? { name: '9mm Pistol', type: 'weapon', weaponId: 'pistol', color: '#94a3b8' }
           : { name: 'Fire Axe', type: 'weapon', weaponId: 'axe', color: '#f43f5e' };
-    } else if (secRoll < 0.5) {
+    } else if (secRoll < 0.45) {
       secItem = { name: 'Lockpick Set', type: 'tool', toolId: 'lockpick', color: '#fbbf24' };
-    } else if (secRoll < 0.78) {
+    } else if (secRoll < 0.75) {
       secItem = { name: 'MRE Pack', type: 'food', hunger: 55, hp: 10, color: '#eab308' };
     } else {
       secItem = { name: 'Bandage', type: 'med', hunger: 0, hp: 40, color: '#f8fafc' };
     }
     addChunkLoot(chunk, `loot-sec-${cx}-${cy}`, bx1 + 2.5, by1 + 2.5, secItem);
 
-    // Ring 3 Strongholds spawn a Quarantine Juggernaut Boss inside
     addChunkZombie(
       chunk,
       `z-in-${cx}-${cy}`,
@@ -263,9 +458,9 @@ function generateChunk(cx, cy) {
   for (let i = 0; i < outdoorCount; i++) {
     const zx = baseX + 3 + Math.floor(hash2d(cx + i * 13, cy + 5) * 26) + 0.5;
     const zy = baseY + 3 + Math.floor(hash2d(cx + 7, cy + i * 19) * 26) + 0.5;
-    const tx = zx - baseX;
-    const ty = zy - baseY;
-    if (tiles[Math.floor(ty) * CHUNK_SIZE + Math.floor(tx)] !== 2) {
+    const tx = Math.floor(zx - baseX);
+    const ty = Math.floor(zy - baseY);
+    if (tiles[ty * CHUNK_SIZE + tx] !== 2 && !isInsideQuarryHub(zx, zy)) {
       addChunkZombie(chunk, `z-out-${cx}-${cy}-${i}`, zx, zy, zone.ring, false);
     }
   }
