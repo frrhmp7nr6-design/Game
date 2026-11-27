@@ -56,7 +56,6 @@ function drawExtrudedBlock(ctx, wx, wy, camX, camY, h, colors, alpha = 1) {
   ctx.restore();
 }
 
-// Multi-tile extruded 3D box for interior furniture & rooftop HVAC units
 function drawIsoBox(ctx, x1, y1, x2, y2, baseZ, height, camX, camY, colors) {
   const topN = worldToScreen(x1, y1, camX, camY);
   const topE = worldToScreen(x2, y1, camX, camY);
@@ -66,7 +65,6 @@ function drawIsoBox(ctx, x1, y1, x2, y2, baseZ, height, camX, camY, colors) {
   const zTop = baseZ + height;
   const zBot = baseZ;
 
-  // Left-South face (topW -> topS)
   ctx.fillStyle = colors.left;
   ctx.beginPath();
   ctx.moveTo(topW.x, topW.y - zTop);
@@ -76,7 +74,6 @@ function drawIsoBox(ctx, x1, y1, x2, y2, baseZ, height, camX, camY, colors) {
   ctx.closePath();
   ctx.fill();
 
-  // Right-East face (topS -> topE)
   ctx.fillStyle = colors.right;
   ctx.beginPath();
   ctx.moveTo(topS.x, topS.y - zTop);
@@ -86,7 +83,6 @@ function drawIsoBox(ctx, x1, y1, x2, y2, baseZ, height, camX, camY, colors) {
   ctx.closePath();
   ctx.fill();
 
-  // Top surface
   ctx.fillStyle = colors.top;
   ctx.beginPath();
   ctx.moveTo(topN.x, topN.y - zTop);
@@ -121,7 +117,6 @@ function drawTile(ctx, wx, wy, camX, camY, type, roadKind, isHiddenInterior) {
   if (isHiddenInterior) {
     ctx.fillStyle = '#090d14';
   } else if (type === 1) {
-    // Sidewalks get crisp light-gray concrete slabs; interior floors get darker slate
     ctx.fillStyle =
       roadKind === 'sidewalk'
         ? (wx + wy) % 2 === 0
@@ -131,26 +126,24 @@ function drawTile(ctx, wx, wy, camX, camY, type, roadKind, isHiddenInterior) {
         ? '#334155'
         : '#2c384b';
   } else if (type === 3) {
-    // Distinct asphalt tones by road tier
     if (roadKind === 'freeway' || roadKind === 'ramp') {
-      ctx.fillStyle = (wx + wy) % 2 === 0 ? '#18181b' : '#141417'; // Deep dark interstate tarmac
+      ctx.fillStyle = (wx + wy) % 2 === 0 ? '#18181b' : '#141417';
     } else if (roadKind === 'highway' || roadKind === 'boulevard') {
       ctx.fillStyle = (wx + wy) % 2 === 0 ? '#232327' : '#1e1e22';
     } else if (roadKind === 'rural') {
-      ctx.fillStyle = (wx + wy) % 2 === 0 ? '#323238' : '#2c2c31'; // Weathered rural chip-seal
+      ctx.fillStyle = (wx + wy) % 2 === 0 ? '#323238' : '#2c2c31';
     } else {
-      ctx.fillStyle = (wx + wy) % 2 === 0 ? '#27272a' : '#212124'; // City avenue / street
+      ctx.fillStyle = (wx + wy) % 2 === 0 ? '#27272a' : '#212124';
     }
   } else if (type === 4) {
-    ctx.fillStyle = (wx + wy) % 2 === 0 ? '#1d4ed8' : '#1e40af'; // Euharlee Creek
+    ctx.fillStyle = (wx + wy) % 2 === 0 ? '#1d4ed8' : '#1e40af';
   } else if (type === 5) {
-    ctx.fillStyle = (wx + wy) % 2 === 0 ? '#6b4c35' : '#5e422e'; // Compacted dirt / gravel road
+    ctx.fillStyle = (wx + wy) % 2 === 0 ? '#6b4c35' : '#5e422e';
   } else {
-    ctx.fillStyle = (wx + wy) % 2 === 0 ? '#1c2b21' : '#18241c'; // Georgia pine woods
+    ctx.fillStyle = (wx + wy) % 2 === 0 ? '#1c2b21' : '#18241c';
   }
   ctx.fill();
 
-  // Subtle tile border (skip border on asphalt so roads look smooth and continuous!)
   if (type !== 3 && !isHiddenInterior) {
     ctx.strokeStyle =
       roadKind === 'sidewalk' ? 'rgba(203, 213, 225, 0.25)' : 'rgba(15, 23, 42, 0.35)';
@@ -158,7 +151,6 @@ function drawTile(ctx, wx, wy, camX, camY, type, roadKind, isHiddenInterior) {
     ctx.stroke();
   }
 
-  // Roadway Lane Markings (dashed white/yellow lines & gravel ruts)
   if (!isHiddenInterior) {
     if (type === 3 && (wx + wy) % 2 === 0) {
       if (roadKind === 'freeway' || roadKind === 'highway' || roadKind === 'boulevard') {
@@ -173,7 +165,6 @@ function drawTile(ctx, wx, wy, camX, camY, type, roadKind, isHiddenInterior) {
         ctx.fill();
       }
     } else if (type === 5 && (wx * 3 + wy) % 3 === 0) {
-      // Gravel pebbles on dirt roads
       ctx.fillStyle = 'rgba(214, 211, 209, 0.28)';
       ctx.fillRect(p.x - 2, p.y + TILE_H / 2 - 1, 3, 2);
     }
@@ -316,7 +307,6 @@ function drawDoor(ctx, door, camX, camY, isHighlighted) {
   }
 }
 
-// Proper Extruded 3D Isometric Interior Furniture (wall-aligned counters, shelves, beds & tables)
 function drawInteriorProp(ctx, prop, camX, camY) {
   const w = prop.w || 2;
   const d = prop.d || 1;
@@ -326,7 +316,6 @@ function drawInteriorProp(ctx, prop, camX, camY) {
       right: '#172554',
       top: '#2563eb'
     });
-    // White pillow at head of bed
     drawIsoBox(ctx, prop.x + 0.15, prop.y + 0.15, prop.x + w - 0.15, prop.y + 0.65, 10, 3, camX, camY, {
       left: '#cbd5e1',
       right: '#94a3b8',
@@ -336,7 +325,7 @@ function drawInteriorProp(ctx, prop, camX, camY) {
     drawIsoBox(ctx, prop.x, prop.y, prop.x + w, prop.y + d, 0, 14, camX, camY, {
       left: '#78350f',
       right: '#5c280b',
-      top: '#cbd5e1' // Stainless/granite countertop
+      top: '#cbd5e1'
     });
   } else if (prop.kind === 'shelf') {
     drawIsoBox(ctx, prop.x, prop.y, prop.x + w, prop.y + d, 0, 22, camX, camY, {
@@ -345,7 +334,6 @@ function drawInteriorProp(ctx, prop, camX, camY) {
       top: '#64748b'
     });
   } else {
-    // Dining / work table
     drawIsoBox(ctx, prop.x, prop.y, prop.x + w, prop.y + d, 0, 12, camX, camY, {
       left: '#92400e',
       right: '#78350f',
@@ -354,7 +342,6 @@ function drawInteriorProp(ctx, prop, camX, camY) {
   }
 }
 
-// True Continuous 3D Sloped Gable Roofs & Raised Parapet Commercial Roofs (Zero stair-stepping!)
 function drawRoofCap(ctx, building, camX, camY) {
   const pal = building.palette || {
     wallL: '#475569',
@@ -367,7 +354,6 @@ function drawRoofCap(ctx, building, camX, camY) {
   const wallH = 42;
 
   for (const r of rects) {
-    // Bounding box in world coordinates (inclusive of x2+1, y2+1 outer wall edge)
     const x1 = r.x1;
     const y1 = r.y1;
     const x2 = r.x2 + 1;
@@ -379,7 +365,6 @@ function drawRoofCap(ctx, building, camX, camY) {
     const sw = worldToScreen(x1, y2, camX, camY);
 
     if (building.roofStyle === 'parapet') {
-      // Flat commercial roof deck + 3D raised parapet rim + rooftop HVAC unit
       const rimH = wallH + 6;
       ctx.fillStyle = pal.roofR;
       ctx.beginPath();
@@ -393,7 +378,6 @@ function drawRoofCap(ctx, building, camX, camY) {
       ctx.lineWidth = 3;
       ctx.stroke();
 
-      // Inner recessed tar roof surface
       const cx = (x1 + x2) / 2;
       const cy = (y1 + y2) / 2;
       drawIsoBox(ctx, cx - 1.2, cy - 1.2, cx + 1.2, cy + 1.2, rimH - 2, 7, camX, camY, {
@@ -402,18 +386,26 @@ function drawRoofCap(ctx, building, camX, camY) {
         top: '#cbd5e1'
       });
     } else {
-      // Continuous 3D Pitched Gable Roof along the longest axis!
       const spanX = x2 - x1;
       const spanY = y2 - y1;
-      const ridgeH = wallH + Math.min(28, Math.max(18, Math.min(spanX, spanY) * 2.4));
+      const ridgeH = wallH + Math.min(26, Math.max(16, Math.min(spanX, spanY) * 2.2));
 
       if (spanX >= spanY) {
-        // East-West Ridge Line
         const midY = (y1 + y2) / 2;
         const rWest = worldToScreen(x1, midY, camX, camY);
         const rEast = worldToScreen(x2, midY, camX, camY);
 
-        // North/Back roof slope
+        const eastFacesCamera = (ne.y + se.y) / 2 >= (nw.y + sw.y) / 2;
+        if (!eastFacesCamera) {
+          ctx.fillStyle = pal.wallL;
+          ctx.beginPath();
+          ctx.moveTo(nw.x, nw.y - wallH);
+          ctx.lineTo(sw.x, sw.y - wallH);
+          ctx.lineTo(rWest.x, rWest.y - ridgeH);
+          ctx.closePath();
+          ctx.fill();
+        }
+
         ctx.fillStyle = pal.roofR;
         ctx.beginPath();
         ctx.moveTo(nw.x, nw.y - wallH);
@@ -423,7 +415,6 @@ function drawRoofCap(ctx, building, camX, camY) {
         ctx.closePath();
         ctx.fill();
 
-        // South/Front roof slope (facing camera)
         ctx.fillStyle = pal.roofL;
         ctx.beginPath();
         ctx.moveTo(rWest.x, rWest.y - ridgeH);
@@ -436,29 +427,31 @@ function drawRoofCap(ctx, building, camX, camY) {
         ctx.lineWidth = 1.5;
         ctx.stroke();
 
-        // East & West triangular gable end-walls
-        ctx.fillStyle = pal.wallR;
-        ctx.beginPath();
-        ctx.moveTo(ne.x, ne.y - wallH);
-        ctx.lineTo(se.x, se.y - wallH);
-        ctx.lineTo(rEast.x, rEast.y - ridgeH);
-        ctx.closePath();
-        ctx.fill();
-
-        ctx.fillStyle = pal.wallL;
-        ctx.beginPath();
-        ctx.moveTo(nw.x, nw.y - wallH);
-        ctx.lineTo(sw.x, sw.y - wallH);
-        ctx.lineTo(rWest.x, rWest.y - ridgeH);
-        ctx.closePath();
-        ctx.fill();
+        if (eastFacesCamera) {
+          ctx.fillStyle = pal.wallR;
+          ctx.beginPath();
+          ctx.moveTo(ne.x, ne.y - wallH);
+          ctx.lineTo(se.x, se.y - wallH);
+          ctx.lineTo(rEast.x, rEast.y - ridgeH);
+          ctx.closePath();
+          ctx.fill();
+        }
       } else {
-        // North-South Ridge Line
         const midX = (x1 + x2) / 2;
         const rNorth = worldToScreen(midX, y1, camX, camY);
         const rSouth = worldToScreen(midX, y2, camX, camY);
 
-        // West/Left roof slope
+        const southFacesCamera = (sw.y + se.y) / 2 >= (nw.y + ne.y) / 2;
+        if (!southFacesCamera) {
+          ctx.fillStyle = pal.wallR;
+          ctx.beginPath();
+          ctx.moveTo(nw.x, nw.y - wallH);
+          ctx.lineTo(ne.x, ne.y - wallH);
+          ctx.lineTo(rNorth.x, rNorth.y - ridgeH);
+          ctx.closePath();
+          ctx.fill();
+        }
+
         ctx.fillStyle = pal.roofL;
         ctx.beginPath();
         ctx.moveTo(nw.x, nw.y - wallH);
@@ -468,7 +461,6 @@ function drawRoofCap(ctx, building, camX, camY) {
         ctx.closePath();
         ctx.fill();
 
-        // East/Right roof slope
         ctx.fillStyle = pal.roofR;
         ctx.beginPath();
         ctx.moveTo(rNorth.x, rNorth.y - ridgeH);
@@ -481,22 +473,22 @@ function drawRoofCap(ctx, building, camX, camY) {
         ctx.lineWidth = 1.5;
         ctx.stroke();
 
-        // South triangular gable end-wall
-        ctx.fillStyle = pal.wallL;
-        ctx.beginPath();
-        ctx.moveTo(sw.x, sw.y - wallH);
-        ctx.lineTo(se.x, se.y - wallH);
-        ctx.lineTo(rSouth.x, rSouth.y - ridgeH);
-        ctx.closePath();
-        ctx.fill();
+        if (southFacesCamera) {
+          ctx.fillStyle = pal.wallL;
+          ctx.beginPath();
+          ctx.moveTo(sw.x, sw.y - wallH);
+          ctx.lineTo(se.x, se.y - wallH);
+          ctx.lineTo(rSouth.x, rSouth.y - ridgeH);
+          ctx.closePath();
+          ctx.fill();
+        }
       }
     }
   }
 
-  // Brick Chimney on residential roofs
   if (building.category !== 'commercial') {
     const r0 = rects[0];
-    drawIsoBox(ctx, r0.x1 + 1.5, r0.y1 + 1.5, r0.x1 + 2.4, r0.y1 + 2.4, wallH + 12, 16, camX, camY, {
+    drawIsoBox(ctx, r0.x1 + 1.5, r0.y1 + 1.5, r0.x1 + 2.4, r0.y1 + 2.4, wallH + 10, 14, camX, camY, {
       left: '#991b1b',
       right: '#7f1d1d',
       top: '#450a0a'
@@ -928,12 +920,10 @@ export function renderMinimap(mctx, player, activeChunks) {
   mctx.fillStyle = '#14221a';
   mctx.fillRect(0, 0, w, h);
 
-  // Downtown & Oakridge Subdivision zones
   mctx.fillStyle = 'rgba(100, 116, 139, 0.22)';
   mctx.fillRect(360 * scale, 290 * scale, 270 * scale, 250 * scale);
   mctx.fillRect(220 * scale, 340 * scale, 140 * scale, 160 * scale);
 
-  // Winding Euharlee Creek
   mctx.strokeStyle = '#2563eb';
   mctx.lineWidth = 2;
   mctx.beginPath();
@@ -944,7 +934,6 @@ export function renderMinimap(mctx, player, activeChunks) {
   }
   mctx.stroke();
 
-  // Interstate Freeway I-20 (bold red/orange ribbon across north)
   mctx.strokeStyle = '#f97316';
   mctx.lineWidth = 2.2;
   mctx.beginPath();
@@ -955,7 +944,6 @@ export function renderMinimap(mctx, player, activeChunks) {
   }
   mctx.stroke();
 
-  // US-278 Highway, Boulevard, Avenues, Streets & Rural Roads
   mctx.strokeStyle = '#64748b';
   mctx.lineWidth = 1.2;
   mctx.beginPath();
@@ -980,7 +968,6 @@ export function renderMinimap(mctx, player, activeChunks) {
   mctx.lineTo(635 * scale, 1010 * scale);
   mctx.stroke();
 
-  // Asymmetrical Rockmart Slate Quarry Hub
   mctx.fillStyle = 'rgba(34, 197, 94, 0.35)';
   mctx.strokeStyle = '#4ade80';
   mctx.lineWidth = 1.2;
@@ -1160,7 +1147,6 @@ export function renderFrame(ctx, player, activeChunks, nearbyLoot, nearbyDoor, o
   renderables.sort((a, b) => a.depth - b.depth);
   for (const item of renderables) item.draw();
 
-  // Draw unrevealed roofs sorted back-to-front so overlapping L-wings never z-fight
   const unrevealed = [];
   const seenIds = new Set();
   for (const c of activeChunks) {
