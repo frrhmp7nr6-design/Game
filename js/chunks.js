@@ -454,7 +454,6 @@ function generateChunk(cx, cy) {
   const baseX = cx * CHUNK_SIZE;
   const baseY = cy * CHUNK_SIZE;
 
-  // Use cached/live OSM GeoJSON Atlas if loaded; otherwise fall back to procedural Rockmart terrain
   const usedOsmAtlas = atlasState.loaded
     ? applyAtlasToChunk(chunk, baseX, baseY, CHUNK_SIZE, stampCompoundBuilding)
     : false;
@@ -497,7 +496,6 @@ function generateChunk(cx, cy) {
       }
     }
   } else {
-    // Ensure Quarry Safe Hub perimeter & floor are always protected even on OSM terrain
     for (let ly = 0; ly < CHUNK_SIZE; ly++) {
       const wy = baseY + ly;
       for (let lx = 0; lx < CHUNK_SIZE; lx++) {
@@ -511,7 +509,6 @@ function generateChunk(cx, cy) {
       }
     }
 
-    // Populate loot & zombies inside OSM-imported buildings
     const midX = baseX + 16;
     const midY = baseY + 16;
     const zone = getZoneInfo(midX, midY);
