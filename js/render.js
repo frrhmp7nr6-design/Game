@@ -172,6 +172,151 @@ function drawTile(ctx, wx, wy, camX, camY, type, roadKind, isHiddenInterior) {
   }
 }
 
+function drawEnvProp(ctx, prop, camX, camY) {
+  const pos = worldToScreen(prop.x, prop.y, camX, camY);
+  if (
+    pos.x < -80 ||
+    pos.x > window.innerWidth + 80 ||
+    pos.y < -120 ||
+    pos.y > window.innerHeight + 80
+  ) {
+    return;
+  }
+
+  const s = prop.scale || 1;
+
+  if (prop.kind === 'pine') {
+    // Ground shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.38)';
+    ctx.beginPath();
+    ctx.ellipse(pos.x, pos.y + 3, 16 * s, 8 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Trunk
+    ctx.fillStyle = '#5c2d16';
+    ctx.fillRect(pos.x - 2.5 * s, pos.y - 16 * s, 5 * s, 17 * s);
+
+    // Layered pine tiers
+    const tiers = [
+      { yOff: 14, w: 18, h: 24, col: '#14532d' },
+      { yOff: 28, w: 14, h: 22, col: '#166534' },
+      { yOff: 42, w: 10, h: 18, col: '#15803d' }
+    ];
+    for (const t of tiers) {
+      ctx.fillStyle = t.col;
+      ctx.beginPath();
+      ctx.moveTo(pos.x, pos.y - (t.yOff + t.h) * s);
+      ctx.lineTo(pos.x + t.w * s, pos.y - t.yOff * s);
+      ctx.lineTo(pos.x - t.w * s, pos.y - t.yOff * s);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#052e16';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+  } else if (prop.kind === 'oak') {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.38)';
+    ctx.beginPath();
+    ctx.ellipse(pos.x, pos.y + 3, 18 * s, 9 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(pos.x - 3 * s, pos.y - 22 * s, 6 * s, 23 * s);
+
+    ctx.fillStyle = '#166534';
+    ctx.beginPath();
+    ctx.arc(pos.x - 8 * s, pos.y - 30 * s, 13 * s, 0, Math.PI * 2);
+    ctx.arc(pos.x + 8 * s, pos.y - 30 * s, 13 * s, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#22c55e';
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y - 37 * s, 15 * s, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#14532d';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+  } else if (prop.kind === 'bush') {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    ctx.beginPath();
+    ctx.ellipse(pos.x, pos.y + 2, 10 * s, 5 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#15803d';
+    ctx.beginPath();
+    ctx.arc(pos.x - 4 * s, pos.y - 4 * s, 7 * s, 0, Math.PI * 2);
+    ctx.arc(pos.x + 4 * s, pos.y - 4 * s, 6.5 * s, 0, Math.PI * 2);
+    ctx.arc(pos.x, pos.y - 7 * s, 7 * s, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (prop.kind === 'rock') {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+    ctx.beginPath();
+    ctx.ellipse(pos.x, pos.y + 2, 12 * s, 6 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = '#64748b';
+    ctx.beginPath();
+    ctx.moveTo(pos.x - 11 * s, pos.y + 1);
+    ctx.lineTo(pos.x - 6 * s, pos.y - 10 * s);
+    ctx.lineTo(pos.x + 5 * s, pos.y - 11 * s);
+    ctx.lineTo(pos.x + 11 * s, pos.y + 1);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  } else if (prop.kind === 'fence') {
+    ctx.strokeStyle = '#92400e';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(pos.x - 14, pos.y + 7);
+    ctx.lineTo(pos.x - 14, pos.y - 7);
+    ctx.moveTo(pos.x + 14, pos.y - 7);
+    ctx.lineTo(pos.x + 14, pos.y - 21);
+    ctx.moveTo(pos.x - 14, pos.y - 4);
+    ctx.lineTo(pos.x + 14, pos.y - 18);
+    ctx.moveTo(pos.x - 14, pos.y + 1);
+    ctx.lineTo(pos.x + 14, pos.y - 13);
+    ctx.stroke();
+  } else if (prop.kind === 'streetlight') {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+    ctx.beginPath();
+    ctx.ellipse(pos.x, pos.y + 2, 6, 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = '#475569';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(pos.x, pos.y);
+    ctx.lineTo(pos.x, pos.y - 44);
+    ctx.lineTo(pos.x + 10, pos.y - 48);
+    ctx.stroke();
+
+    ctx.fillStyle = '#fef08a';
+    ctx.beginPath();
+    ctx.arc(pos.x + 11, pos.y - 47, 3.2, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (prop.kind === 'hydrant') {
+    ctx.fillStyle = '#dc2626';
+    ctx.fillRect(pos.x - 3, pos.y - 9, 6, 9);
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y - 9, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (prop.kind === 'car') {
+    const col = prop.color || '#cbd5e1';
+    drawIsoBox(ctx, prop.x - 1.1, prop.y - 0.6, prop.x + 1.1, prop.y + 0.6, 0, 9, camX, camY, {
+      left: col,
+      right: '#334155',
+      top: col
+    });
+    drawIsoBox(ctx, prop.x - 0.55, prop.y - 0.5, prop.x + 0.55, prop.y + 0.5, 9, 6, camX, camY, {
+      left: '#0f172a',
+      right: '#1e293b',
+      top: col
+    });
+  }
+}
+
 function isWallOccludingUnit(wallScreen, unitScreen) {
   const dy = wallScreen.y - unitScreen.y;
   const dx = Math.abs(wallScreen.x - unitScreen.x);
@@ -922,9 +1067,9 @@ export function renderMinimap(mctx, player, activeChunks) {
   mctx.fillRect(0, 0, w, h);
 
   // District shading (Downtown, West & East Suburbs)
-  mctx.fillStyle = 'rgba(100, 116, 139, 0.28)';
+  mctx.fillStyle = 'rgba(100, 116, 139, 0.32)';
   mctx.fillRect(760 * scale, 580 * scale, 500 * scale, 480 * scale);
-  mctx.fillStyle = 'rgba(100, 116, 139, 0.16)';
+  mctx.fillStyle = 'rgba(100, 116, 139, 0.18)';
   mctx.fillRect(340 * scale, 620 * scale, 380 * scale, 440 * scale);
   mctx.fillRect(1420 * scale, 580 * scale, 380 * scale, 420 * scale);
 
@@ -1022,6 +1167,12 @@ export function renderMinimap(mctx, player, activeChunks) {
   mctx.beginPath();
   mctx.arc(player.x * scale, player.y * scale, 2.8, 0, Math.PI * 2);
   mctx.fill();
+
+  // Compass North Indicator (Top-Left of Isometric View = North)
+  mctx.font = 'bold 9px -apple-system, sans-serif';
+  mctx.fillStyle = 'rgba(148, 163, 184, 0.9)';
+  mctx.textAlign = 'right';
+  mctx.fillText('N ▲', w - 6, 12);
 }
 
 export function renderFrame(ctx, player, activeChunks, nearbyLoot, nearbyDoor, objectiveTarget) {
@@ -1104,6 +1255,18 @@ export function renderFrame(ctx, player, activeChunks, nearbyLoot, nearbyDoor, o
               draw: () => drawInteriorProp(ctx, prop, camX, camY)
             });
           }
+        }
+      }
+    }
+
+    // Outdoor trees, bushes, rocks, fences, streetlights & parked cars
+    if (c.props) {
+      for (const prop of c.props) {
+        if (prop.x >= minX && prop.x <= maxX && prop.y >= minY && prop.y <= maxY) {
+          renderables.push({
+            depth: depthOf(prop.x, prop.y) + 0.04,
+            draw: () => drawEnvProp(ctx, prop, camX, camY)
+          });
         }
       }
     }
