@@ -44,7 +44,6 @@ export function worldToScreen(wx, wy, camX, camY) {
   };
 }
 
-// Iron Convoy Garage inside Rockmart Quarry Hub (509, 598)
 export const convoyGarage = {
   x: 509.5,
   y: 598.5,
@@ -54,22 +53,19 @@ export const convoyGarage = {
   launched: false
 };
 
-// Quarry Workbench inside Quarry Depot (531, 598)
 export const quarryWorkbench = {
   x: 531.5,
   y: 598.5
 };
 
-// Central Quarry Campfire
 export const quarryCampfire = {
   x: 520.5,
   y: 610.5
 };
 
-// Rockmart Police Precinct waypoint (568, 468)
 export const policePrecinct = {
-  x: 568.5,
-  y: 468.5
+  x: 565.5,
+  y: 472.5
 };
 
 export const campUpgrades = {
@@ -78,37 +74,36 @@ export const campUpgrades = {
   watchtower: false
 };
 
-// Hidden Trapped Survivors — NO automatic minimap icons until a Police Radio picks up their distress call!
 const DISTRESS_LOCATIONS = [
   {
     name: 'Mechanic Dale',
-    x: 499.5,
-    y: 465.5,
-    callout: 'Pinned down behind Hometown Pizza on Elm St!'
+    x: 498.5,
+    y: 473.5,
+    callout: 'Pinned down outside Hometown Pizza on Elm St!'
   },
   {
     name: 'Nurse Clara',
     x: 595.5,
-    y: 432.5,
+    y: 410.5,
     callout: 'Trapped near N Piedmont Ave & College St!'
   },
   {
     name: 'Gunsmith Marcus',
-    x: 432.5,
-    y: 518.5,
-    callout: 'Hiding in the woods off Morgan Valley Rd!'
+    x: 285.5,
+    y: 364.5,
+    callout: 'Hiding inside an Oakridge Subdivision house!'
   },
   {
     name: 'Quartermaster Mae',
-    x: 468.5,
-    y: 256.5,
+    x: 463.5,
+    y: 260.5,
     callout: 'Barricaded near Low True Hardware on US-278!'
   },
   {
     name: 'Engineer Brooks',
     x: 562.5,
     y: 735.5,
-    callout: 'Stranded south along Hutchins Mountain Rd!'
+    callout: 'Stranded at a rural farmhouse on Hutchins Mountain Rd!'
   }
 ];
 
@@ -117,10 +112,10 @@ export const rescueEvent = {
   id: 0,
   name: 'Mechanic Dale',
   callout: '',
-  x: 499.5,
-  y: 465.5,
+  x: 498.5,
+  y: 473.5,
   following: false,
-  radioPingTimer: 0 // > 0 when Police Radio actively picks up their distress call
+  radioPingTimer: 0
 };
 
 export const rescuedSpecialists = [];
@@ -152,9 +147,13 @@ export function getDoorAt(tx, ty, activeChunks) {
 export function getBuildingAt(wx, wy, activeChunks) {
   const tx = Math.floor(wx);
   const ty = Math.floor(wy);
+  const key = `${tx},${ty}`;
   for (const c of activeChunks) {
     for (const b of c.buildings) {
-      if (tx > b.x1 && tx < b.x2 && ty > b.y1 && ty < b.y2) {
+      if (b.cellSet && b.cellSet.has(key)) {
+        return b;
+      }
+      if (tx >= b.x1 && tx <= b.x2 && ty >= b.y1 && ty <= b.y2) {
         return b;
       }
     }
@@ -172,7 +171,7 @@ export function isBuildingRevealed(building, player, activeChunks) {
   for (const c of activeChunks) {
     for (const d of c.doors) {
       if (d.buildingId === building.id && d.state === 'open') {
-        if (Math.hypot(player.x - (d.x + 0.5), player.y - (d.y + 0.5)) < 2.4) {
+        if (Math.hypot(player.x - (d.x + 0.5), player.y - (d.y + 0.5)) < 2.6) {
           return true;
         }
       }
