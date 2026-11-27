@@ -15,10 +15,87 @@ html, body {
   font-family: -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
-canvas {
+canvas#game {
   display: block;
   width: 100vw;
   height: 100vh;
+}
+
+/* Archetype Modal */
+#archetype-modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(9, 13, 20, 0.94);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+  padding: 20px;
+}
+
+#archetype-modal.hidden {
+  display: none;
+}
+
+.modal-card {
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 16px;
+  padding: 22px;
+  max-width: 620px;
+  width: 100%;
+  color: #f8fafc;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.75);
+}
+
+.modal-card h1 {
+  margin: 0 0 6px;
+  font-size: 20px;
+  letter-spacing: 0.6px;
+  color: #38bdf8;
+}
+
+.modal-card p {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+.archetype-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.arch-btn {
+  background: #1e293b;
+  border: 1px solid #475569;
+  border-radius: 12px;
+  padding: 14px;
+  text-align: left;
+  color: #f8fafc;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  cursor: pointer;
+}
+
+.arch-btn:active {
+  border-color: #38bdf8;
+  background: #0f2942;
+  transform: scale(0.98);
+}
+
+.arch-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: #7dd3fc;
+}
+
+.arch-sub {
+  font-size: 11px;
+  color: #cbd5e1;
+  line-height: 1.35;
 }
 
 /* Top HUD */
@@ -37,6 +114,12 @@ canvas {
   z-index: 5;
 }
 
+.hud-left {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .stats-panel {
   background: rgba(15, 23, 42, 0.88);
   border: 1px solid #334155;
@@ -48,12 +131,21 @@ canvas {
   gap: 6px;
 }
 
+#minimap {
+  width: 136px;
+  height: 136px;
+  border-radius: 12px;
+  border: 1px solid #475569;
+  background: rgba(9, 13, 20, 0.92);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+}
+
 .mission-panel {
   background: rgba(15, 23, 42, 0.9);
   border: 1px solid #38bdf8;
   padding: 9px 14px;
   border-radius: 10px;
-  max-width: 295px;
+  max-width: 310px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
 }
 
@@ -330,7 +422,7 @@ canvas {
   justify-content: center;
   color: #f8fafc;
   gap: 14px;
-  z-index: 25;
+  z-index: 35;
   text-align: center;
   padding: 20px;
 }
