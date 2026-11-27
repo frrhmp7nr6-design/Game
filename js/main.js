@@ -1,8 +1,12 @@
 import {
+  CENTER,
   camera,
   rotateCamera,
   convoyGarage,
   quarryCampfire,
+  rescueEvent,
+  rescuedSpecialists,
+  spawnNextRescueFlare,
   worldToScreen,
   canWalkTo,
   getNearbyLootList
@@ -21,6 +25,7 @@ import {
   applyArchetypeLoadout,
   initInventory,
   grabLootItem,
+  dropHeavyCrate,
   deliverConvoySupplies,
   hasLockpick,
   consumeLockpick,
@@ -52,7 +57,9 @@ const coordsEl = document.getElementById('coords');
 const grabBtn = document.getElementById('grab-btn');
 const doorBtn = document.getElementById('door-btn');
 const repairBtn = document.getElementById('repair-btn');
+const specialBtn = document.getElementById('special-btn');
 const missionPctEl = document.getElementById('mission-pct');
+const specCountEl = document.getElementById('spec-count');
 const missionSubEl = document.getElementById('mission-sub');
 const missionFillEl = document.getElementById('mission-fill');
 const gameOverEl = document.getElementById('gameover');
@@ -74,6 +81,7 @@ const player = {
   sprintSpeed: 7.6,
   archetype: 'bruiser',
   bagCapacity: 8,
+  carryingCrate: null,
   hp: 100,
   maxHp: 100,
   stamina: 100,
@@ -92,10 +100,13 @@ const player = {
 let activeChunks = getActiveChunks(player.x, player.y, 1);
 let nearbyLoot = null;
 let nearbyDoor = null;
+let canRescueNow = false;
 
 const { toggleBag } = initInventory(player);
 
-// Connect to Supabase Realtime co-op room
+// Spawn initial Neighbor Rescue Flare in Ring 1
+spawnNextRescueFlare(player);
+
 initNetwork(player, {
   onRemoteDoor: ({ key, state }) => {
     if (state === 'open') openedDoors.add(key);
@@ -119,10 +130,13 @@ initNetwork(player, {
       if (idx !== -1) c.zombies.splice(idx, 1);
     }
   },
-  onRemoteConvoy: ({ points }) => {
+  onRemoteConvoy: ({ points, specialists }) => {
     if (typeof points === 'number' && points > convoyGarage.points) {
       convoyGarage.points = points;
-      showToast(`🚛 Teammate loaded Convoy Supplies! (${points}/${convoyGarage.targetPoints})`);
+    }
+    if (typeof specialists === 'number' && specialists > convoyGarage.specialists) {
+      convoyGarage.specialists = specialists;
+      showToast(`🎉 Teammate rescued a Quarry Specialist! (${specialists} NPCs)`);
     }
   }
 });
@@ -134,7 +148,7 @@ document.querySelectorAll('.arch-btn').forEach((btn) => {
     archBadge.textContent = arch.toUpperCase();
     archModal.classList.add('hidden');
     player.started = true;
-    showToast(`Deployed as ${arch.toUpperCase()} in Quarry Hub`);
+    showToast(`🚨 Flare spotted! Rescue ${rescueEvent.name} in Ring 1!`);
   });
 });
 
@@ -219,18 +233,34 @@ function smashDoor(d) {
 
 function handleConvoyLoad() {
   const distToGarage = Math.hypot(convoyGarage.x - player.x, convoyGarage.y - player.y);
-  if (distToGarage > 2.2) return;
+  if (distToGarage > 2.4) return;
 
   const added = deliverConvoySupplies(player);
   if (added === 0) {
-    showToast('Scavenge Scrap Plating, Fuel & Armor in Threat Rings!');
+    showToast('Scavenge Supplies or Heavy Crates in Threat Rings!');
     return;
   }
 
-  broadcastWorldEvent({ kind: 'convoy', points: convoyGarage.points });
+  broadcastWorldEvent({
+    kind: 'convoy',
+    points: convoyGarage.points,
+    specialists: convoyGarage.specialists
+  });
   showToast(
     `🚛 Loaded +${added} Convoy Supplies! (${convoyGarage.points}/${convoyGarage.targetPoints})`
   );
+}
+
+function handleSpecialAction() {
+  if (player.dead) return;
+  if (canRescueNow && rescueEvent.active && !rescueEvent.following) {
+    rescueEvent.following = true;
+    showToast(`🏃 Escorting ${rescueEvent.name} back to the Quarry Safe Hub!`);
+    return;
+  }
+  if (player.carryingCrate) {
+    dropHeavyCrate(player);
+  }
 }
 
 initInput(canvas, player, {
@@ -246,6 +276,7 @@ initInput(canvas, player, {
   },
   onDoor: handleDoorAction,
   onRepair: handleConvoyLoad,
+  onSpecial: handleSpecialAction,
   onRotate: () => {
     const rot = rotateCamera();
     showToast(`Camera: ${rot * 90}°`);
@@ -254,21 +285,37 @@ initInput(canvas, player, {
 });
 
 function getObjectiveTarget() {
-  const carryingConvoy = inventory.some((i) => i.type === 'convoy');
-  if (carryingConvoy) {
-    return { x: convoyGarage.x, y: convoyGarage.y, isGarage: true };
+  // 1. Escorting a rescued survivor or hauling a heavy crate -> point back to Quarry Hub
+  if (rescueEvent.active && rescueEvent.following) {
+    return { x: CENTER, y: CENTER, isGarage: true, color: '#f472b6' };
+  }
+  if (player.carryingCrate || inventory.some((i) => i.type === 'convoy')) {
+    return { x: convoyGarage.x, y: convoyGarage.y, isGarage: true, color: '#4ade80' };
   }
 
+  // 2. Point toward the nearest Convoy Supply / Heavy Crate or active Distress Flare
   const lootList = getNearbyLootList(activeChunks);
   let closest = null;
   let bestDist = Infinity;
   for (const item of lootList) {
-    if (item.type === 'convoy') {
+    if (item.type === 'convoy' || item.type === 'heavy') {
       const d = Math.hypot(item.x - player.x, item.y - player.y);
       if (d < bestDist) {
         bestDist = d;
-        closest = { x: item.x, y: item.y, isGarage: false };
+        closest = {
+          x: item.x,
+          y: item.y,
+          isGarage: false,
+          color: item.type === 'heavy' ? '#fb923c' : '#22d3ee'
+        };
       }
+    }
+  }
+
+  if (rescueEvent.active && !rescueEvent.following) {
+    const flareDist = Math.hypot(rescueEvent.x - player.x, rescueEvent.y - player.y);
+    if (!closest || flareDist < bestDist * 1.4) {
+      return { x: rescueEvent.x, y: rescueEvent.y, isGarage: false, color: '#f472b6' };
     }
   }
   return closest;
@@ -287,7 +334,8 @@ function update(dt) {
   if (keys['d'] || keys['arrowright']) sx += 1;
 
   const isMoving = Math.hypot(sx, sy) > 0.1;
-  const wantsSprint = sprintHeld || keys['shift'];
+  // Cannot sprint while hauling a Heavy Supply Crate
+  const wantsSprint = !player.carryingCrate && (sprintHeld || keys['shift']);
 
   if (wantsSprint && isMoving && player.stamina > 0 && !player.exhausted) {
     player.isSprinting = true;
@@ -303,7 +351,6 @@ function update(dt) {
   const hungerDrain = player.isSprinting ? 0.95 : isMoving ? 0.45 : 0.2;
   player.hunger = Math.max(0, player.hunger - hungerDrain * dt);
 
-  // Campfire healing + Medic aura (both self and nearby Medic allies)
   const nearCampfire = Math.hypot(quarryCampfire.x - player.x, quarryCampfire.y - player.y) < 3.2;
   let nearAllyMedic = false;
   for (const rp of remotePlayers.values()) {
@@ -330,7 +377,12 @@ function update(dt) {
   }
 
   if (isMoving) {
-    const speed = player.isSprinting ? player.sprintSpeed : player.walkSpeed;
+    let speed = player.isSprinting ? player.sprintSpeed : player.walkSpeed;
+    // Heavy Supply Crate encumbers movement (-35%, or -15% for Scavenger)
+    if (player.carryingCrate) {
+      speed *= player.archetype === 'scavenger' ? 0.85 : 0.65;
+    }
+
     const rx = sx + sy * 2;
     const ry = sy * 2 - sx;
     const len = Math.hypot(rx, ry) || 1;
@@ -364,11 +416,43 @@ function update(dt) {
     player.angle = Math.atan2(sticks.look.dy, sticks.look.dx);
   }
 
+  // Escorting rescued survivor back to Quarry Safe Hub
+  if (rescueEvent.active && rescueEvent.following) {
+    const distToPlayer = Math.hypot(player.x - rescueEvent.x, player.y - rescueEvent.y);
+    if (distToPlayer > 1.35) {
+      const ang = Math.atan2(player.y - rescueEvent.y, player.x - rescueEvent.x);
+      const npcSpeed = 4.6;
+      const nx = rescueEvent.x + Math.cos(ang) * npcSpeed * dt;
+      const ny = rescueEvent.y + Math.sin(ang) * npcSpeed * dt;
+      if (canWalkTo(nx, rescueEvent.y, 0.25, activeChunks)) rescueEvent.x = nx;
+      if (canWalkTo(rescueEvent.x, ny, 0.25, activeChunks)) rescueEvent.y = ny;
+    }
+
+    // Check if escorted NPC has crossed inside the 128x128 Quarry Camp safe perimeter
+    if (Math.abs(rescueEvent.x - CENTER) <= 62 && Math.abs(rescueEvent.y - CENTER) <= 62) {
+      convoyGarage.specialists += 1;
+      const slotOffset = rescuedSpecialists.length * 1.8;
+      rescuedSpecialists.push({
+        name: rescueEvent.name,
+        x: 504 + (slotOffset % 8),
+        y: 507 + Math.floor(slotOffset / 8) * 1.8
+      });
+      broadcastWorldEvent({
+        kind: 'convoy',
+        points: convoyGarage.points,
+        specialists: convoyGarage.specialists
+      });
+      showToast(`🎉 ${rescueEvent.name} joined Quarry Camp! (+1 Convoy Delivery Bonus)`);
+      spawnNextRescueFlare(player);
+    }
+  }
+
   updateCombat(dt, player, activeChunks);
   broadcastPlayerState(player);
 
   if (player.hp <= 0) {
     player.dead = true;
+    if (player.carryingCrate) dropHeavyCrate(player);
     gameOverEl.querySelector('h1').textContent = player.hunger === 0 ? 'YOU STARVED' : 'YOU DIED';
     gameOverEl.querySelector('p').textContent =
       player.hunger === 0
@@ -378,16 +462,41 @@ function update(dt) {
     return;
   }
 
-  const inBagPoints = inventory
+  // Iron Convoy & Specialist HUD
+  const bagPoints = inventory
     .filter((i) => i.type === 'convoy')
     .reduce((sum, i) => sum + (i.value || 1), 0);
+  const cratePoints = player.carryingCrate ? player.carryingCrate.value || 4 : 0;
+  const totalCarried = bagPoints + cratePoints;
+
   missionPctEl.textContent = `${convoyGarage.points} / ${convoyGarage.targetPoints} SUPPLIES`;
-  missionSubEl.textContent =
-    inBagPoints > 0
-      ? `Carrying +${inBagPoints} supplies — follow green arrow to Quarry Garage!`
-      : 'Explore Threat Rings 1–3 for Scrap Plating, Fuel & Military Armor';
+  specCountEl.textContent = `${convoyGarage.specialists} NPCs`;
+  if (rescueEvent.active && rescueEvent.following) {
+    missionSubEl.textContent = `Escorting ${rescueEvent.name} — lead them inside the Quarry gates!`;
+  } else if (totalCarried > 0) {
+    missionSubEl.textContent = `Hauling +${totalCarried} supplies — return to Quarry Garage!`;
+  } else {
+    missionSubEl.textContent = `Flare: ${rescueEvent.name} at (${Math.floor(rescueEvent.x)}, ${Math.floor(rescueEvent.y)})`;
+  }
   missionFillEl.style.width = `${(convoyGarage.points / convoyGarage.targetPoints) * 100}%`;
 
+  // Contextual Rescue / Drop Crate Button
+  canRescueNow =
+    rescueEvent.active &&
+    !rescueEvent.following &&
+    Math.hypot(rescueEvent.x - player.x, rescueEvent.y - player.y) < 1.8;
+
+  if (canRescueNow) {
+    specialBtn.innerHTML = 'RESCUE<br/>NPC';
+    specialBtn.classList.add('visible');
+  } else if (player.carryingCrate) {
+    specialBtn.innerHTML = 'DROP<br/>CRATE';
+    specialBtn.classList.add('visible');
+  } else {
+    specialBtn.classList.remove('visible');
+  }
+
+  // Door button
   nearbyDoor = null;
   let bestDoorDist = 1.45;
   for (const c of activeChunks) {
@@ -414,13 +523,15 @@ function update(dt) {
     doorBtn.classList.remove('visible');
   }
 
+  // Convoy Garage delivery button
   const distToGarage = Math.hypot(convoyGarage.x - player.x, convoyGarage.y - player.y);
-  if (distToGarage <= 2.2 && inBagPoints > 0) {
+  if (distToGarage <= 2.4 && totalCarried > 0) {
     repairBtn.classList.add('visible');
   } else {
     repairBtn.classList.remove('visible');
   }
 
+  // Loot grab button
   nearbyLoot = null;
   let bestLootDist = 1.15;
   for (const item of getNearbyLootList(activeChunks)) {
