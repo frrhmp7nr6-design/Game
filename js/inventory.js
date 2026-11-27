@@ -10,11 +10,12 @@ export function showToast(msg) {
   toastEl.textContent = msg;
   toastEl.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2200);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2400);
 }
 
 export function applyArchetypeLoadout(player, arch) {
   player.archetype = arch;
+  player.carryingCrate = null;
   inventory.length = 0;
 
   if (arch === 'bruiser') {
@@ -171,6 +172,19 @@ export function renderBag(player) {
 
 export function grabLootItem(player, item, activeChunks) {
   if (!item || player.dead) return false;
+
+  // Heavy Supply Crates are hauled on the back rather than stored in small backpack slots
+  if (item.type === 'heavy') {
+    if (player.carryingCrate) {
+      showToast('Already hauling a Heavy Supply Crate!');
+      return false;
+    }
+    removeFromWorld(item, activeChunks);
+    player.carryingCrate = item;
+    showToast('📦 Hauling Heavy Supply Crate! (-35% speed, +4 Convoy pts)');
+    return true;
+  }
+
   const cap = player.bagCapacity || 8;
   if (inventory.length >= cap) {
     showToast('Backpack is full!');
@@ -178,20 +192,7 @@ export function grabLootItem(player, item, activeChunks) {
   }
 
   inventory.push(item);
-
-  const dIdx = droppedLoot.indexOf(item);
-  if (dIdx !== -1) {
-    droppedLoot.splice(dIdx, 1);
-  } else {
-    lootedIds.add(item.id);
-    for (const c of activeChunks) {
-      const idx = c.loot.indexOf(item);
-      if (idx !== -1) {
-        c.loot.splice(idx, 1);
-        break;
-      }
-    }
-  }
+  removeFromWorld(item, activeChunks);
 
   if (item.type === 'convoy') {
     showToast(`🚛 Stashed ${item.name} (+${item.value} Convoy)!`);
@@ -206,19 +207,59 @@ export function grabLootItem(player, item, activeChunks) {
   return true;
 }
 
+export function dropHeavyCrate(player) {
+  if (!player.carryingCrate) return false;
+  const crate = player.carryingCrate;
+  player.carryingCrate = null;
+  droppedLoot.push({
+    ...crate,
+    x: player.x + (Math.random() - 0.5) * 0.4,
+    y: player.y + (Math.random() - 0.5) * 0.4
+  });
+  showToast('Dropped Heavy Supply Crate');
+  return true;
+}
+
+function removeFromWorld(item, activeChunks) {
+  const dIdx = droppedLoot.indexOf(item);
+  if (dIdx !== -1) {
+    droppedLoot.splice(dIdx, 1);
+  } else {
+    lootedIds.add(item.id);
+    for (const c of activeChunks) {
+      const idx = c.loot.indexOf(item);
+      if (idx !== -1) {
+        c.loot.splice(idx, 1);
+        break;
+      }
+    }
+  }
+}
+
 export function deliverConvoySupplies(player) {
   let addedPoints = 0;
+
+  if (player.carryingCrate) {
+    addedPoints += player.carryingCrate.value || 4;
+    player.carryingCrate = null;
+  }
+
   for (let i = inventory.length - 1; i >= 0; i--) {
     if (inventory[i].type === 'convoy') {
       addedPoints += inventory[i].value || 1;
       inventory.splice(i, 1);
     }
   }
+
   if (addedPoints > 0) {
-    convoyGarage.points = Math.min(convoyGarage.targetPoints, convoyGarage.points + addedPoints);
+    // Rescued Quarry specialists grant +1 bonus point per delivery
+    const engineerBonus = convoyGarage.specialists > 0 ? 1 : 0;
+    const totalAdded = addedPoints + engineerBonus;
+    convoyGarage.points = Math.min(convoyGarage.targetPoints, convoyGarage.points + totalAdded);
     renderBag(player);
+    return totalAdded;
   }
-  return addedPoints;
+  return 0;
 }
 
 function useBagItem(player, idx) {
