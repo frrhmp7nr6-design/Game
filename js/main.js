@@ -1,6 +1,8 @@
 import {
   QUARRY_X,
   QUARRY_Y,
+  getQuarryCenter,
+  syncQuarryLandmarks,
   camera,
   rotateCamera,
   convoyGarage,
@@ -85,9 +87,10 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
+// Spawn inside the resized 46x38 Rockmart Slate Quarry Safe Hub (538.5, 743.5)
 const player = {
-  x: 518.5,
-  y: 608.5,
+  x: QUARRY_X - 1.5,
+  y: QUARRY_Y - 1.5,
   radius: 0.28,
   angle: -Math.PI / 4,
   walkSpeed: 4.5,
@@ -120,11 +123,37 @@ let nearWorkbench = false;
 const { toggleBag } = initInventory(player);
 spawnNextRescueFlare();
 
+function ensurePlayerUnstuck() {
+  if (canWalkTo(player.x, player.y, player.radius, activeChunks)) return;
+  for (let r = 1; r <= 14; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
+        const tx = Math.floor(player.x) + dx + 0.5;
+        const ty = Math.floor(player.y) + dy + 0.5;
+        if (canWalkTo(tx, ty, player.radius, activeChunks)) {
+          player.x = tx;
+          player.y = ty;
+          return;
+        }
+      }
+    }
+  }
+}
+
 function refreshAtlas(force = false) {
   coordsEl.textContent = '🌐 Loading Rockmart OSM...';
   initAtlas((state) => {
+    const wasInsideQuarry = isInsideQuarryHub(player.x, player.y);
+    syncQuarryLandmarks();
     clearChunkCache();
+    if (wasInsideQuarry) {
+      const qc = getQuarryCenter();
+      player.x = qc.x - 1.5;
+      player.y = qc.y - 1.5;
+    }
     activeChunks = getActiveChunks(player.x, player.y, 1);
+    ensurePlayerUnstuck();
     if (state.loaded) {
       showToast(`🗺️ Loaded ${state.features.length} real Rockmart OSM features (${state.source})!`);
     } else {
@@ -189,6 +218,7 @@ document.querySelectorAll('.arch-btn').forEach((btn) => {
     archBadge.textContent = arch.toUpperCase();
     archModal.classList.add('hidden');
     player.started = true;
+    ensurePlayerUnstuck();
     if (atlasState.loaded) {
       showToast(`🗺️ Live Rockmart OSM active (${atlasState.features.length} features)!`);
     } else {
@@ -356,8 +386,9 @@ initInput(canvas, player, {
 });
 
 function getObjectiveTarget() {
+  const qc = getQuarryCenter();
   if (rescueEvent.active && rescueEvent.following) {
-    return { x: QUARRY_X, y: QUARRY_Y, isGarage: true, color: '#f472b6' };
+    return { x: qc.x, y: qc.y, isGarage: true, color: '#f472b6' };
   }
   if (
     convoyGarage.points >= convoyGarage.targetPoints ||
@@ -509,12 +540,13 @@ function update(dt) {
     }
 
     if (isInsideQuarryHub(rescueEvent.x, rescueEvent.y)) {
+      const qc = getQuarryCenter();
       convoyGarage.specialists += 1;
       const slotOffset = rescuedSpecialists.length * 1.8;
       rescuedSpecialists.push({
         name: rescueEvent.name,
-        x: 512 + (slotOffset % 8),
-        y: 605 + Math.floor(slotOffset / 8) * 1.8
+        x: qc.x - 8 + (slotOffset % 8),
+        y: qc.y - 5 + Math.floor(slotOffset / 8) * 1.8
       });
       broadcastWorldEvent({
         kind: 'convoy',
