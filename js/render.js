@@ -2,8 +2,9 @@ import {
   TILE_W,
   TILE_H,
   MAP_SIZE,
-  QUARRY_X,
-  QUARRY_Y,
+  QUARRY_RX,
+  QUARRY_RY,
+  getQuarryCenter,
   convoyGarage,
   quarryWorkbench,
   quarryCampfire,
@@ -995,20 +996,22 @@ export function renderMinimap(mctx, player, activeChunks) {
       mctx.moveTo(sx * scale, 290 * scale);
       mctx.lineTo(sx * scale, 540 * scale);
     }
-    mctx.moveTo(520 * scale, 625 * scale);
+    mctx.moveTo(520 * scale, 760 * scale);
     mctx.lineTo(558 * scale, 245 * scale);
     mctx.moveTo(515 * scale, 485 * scale);
     mctx.lineTo(140 * scale, 645 * scale);
-    mctx.moveTo(520 * scale, 605 * scale);
+    mctx.moveTo(540 * scale, 730 * scale);
     mctx.lineTo(635 * scale, 1010 * scale);
     mctx.stroke();
   }
 
+  // Proportional Quarry Safe Hub ring aligned with getQuarryCenter()
+  const qc = getQuarryCenter();
   mctx.fillStyle = 'rgba(34, 197, 94, 0.25)';
   mctx.strokeStyle = '#4ade80';
   mctx.lineWidth = 1.2;
   mctx.beginPath();
-  mctx.ellipse(QUARRY_X * scale, QUARRY_Y * scale, 68 * scale, 54 * scale, -0.15, 0, Math.PI * 2);
+  mctx.ellipse(qc.x * scale, qc.y * scale, QUARRY_RX * scale, QUARRY_RY * scale, -0.15, 0, Math.PI * 2);
   mctx.fill();
   mctx.stroke();
 
