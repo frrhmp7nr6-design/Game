@@ -26,7 +26,8 @@ export const atlasState = {
   source: 'procedural',
   error: '',
   features: [],
-  quarryPolygons: []
+  quarryPolygons: [],
+  quarryCenter: { x: 540, y: 745 }
 };
 
 export function latLonToTile(lat, lon) {
@@ -160,11 +161,27 @@ function ingestFeatureCollection(gj) {
       }
     }
   }
+
+  // Snap quarryCenter to the largest real OSM quarry polygon if present
+  if (atlasState.quarryPolygons.length > 0) {
+    let best = atlasState.quarryPolygons[0];
+    let bestArea = 0;
+    for (const q of atlasState.quarryPolygons) {
+      const area = (q.maxX - q.minX) * (q.maxY - q.minY);
+      if (area > bestArea) {
+        bestArea = area;
+        best = q;
+      }
+    }
+    atlasState.quarryCenter = {
+      x: Math.round((best.minX + best.maxX) / 2),
+      y: Math.round((best.minY + best.maxY) / 2)
+    };
+  }
 }
 
 async function fetchWithMirrors(bounds) {
   const { minLat, minLon, maxLat, maxLon } = bounds;
-  // Compact single-pass regex query using GET (bypasses Safari CORS preflight & runs <2s)
   const ql = `[out:json][timeout:25];way(${minLat},${minLon},${maxLat},${maxLon})[~"^(highway|building|waterway|landuse|natural)$"~"."];(._;>;);out body;`;
 
   let lastErr = null;
@@ -193,7 +210,6 @@ export async function initAtlas(onReady, forceRefresh = false) {
   atlasState.status = 'loading';
 
   if (!forceRefresh) {
-    // 1. Check bundled static repo file ./atlas/rockmart.json if present
     try {
       const res = await fetch('./atlas/rockmart.json');
       if (res.ok) {
@@ -212,7 +228,6 @@ export async function initAtlas(onReady, forceRefresh = false) {
       // Continue to IndexedDB
     }
 
-    // 2. Check IndexedDB cache
     const cached = await readCachedSector(SECTOR_KEY);
     if (cached && cached.geojson && cached.geojson.features?.length > 0) {
       atlasBounds = { ...DEFAULT_BOUNDS, ...(cached.bounds || {}) };
@@ -225,7 +240,6 @@ export async function initAtlas(onReady, forceRefresh = false) {
     }
   }
 
-  // 3. Fetch live Rockmart, GA OSM geometry via fast GET & cache in IndexedDB
   try {
     atlasBounds = { ...DEFAULT_BOUNDS };
     const gj = await fetchWithMirrors(DEFAULT_BOUNDS);
@@ -264,7 +278,14 @@ export function distToSegment(px, py, x1, y1, x2, y2) {
   return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
 }
 
-export function applyAtlasToChunk(chunk, baseX, baseY, CHUNK_SIZE, stampCompoundBuilding) {
+export function applyAtlasToChunk(
+  chunk,
+  baseX,
+  baseY,
+  CHUNK_SIZE,
+  stampCompoundBuilding,
+  isInsideQuarryHub
+) {
   if (!atlasState.loaded) return false;
 
   const maxX = baseX + CHUNK_SIZE;
@@ -370,10 +391,33 @@ export function applyAtlasToChunk(chunk, baseX, baseY, CHUNK_SIZE, stampCompound
     const cy = (f.minY + f.maxY) / 2;
     if (cx < baseX || cx >= maxX || cy < baseY || cy >= maxY) continue;
 
+    // Never stamp OSM buildings inside the Quarry Safe Hub
+    if (isInsideQuarryHub && isInsideQuarryHub(cx, cy)) continue;
+
     const x1 = Math.max(12, Math.floor(f.minX));
     const y1 = Math.max(12, Math.floor(f.minY));
     const x2 = Math.min(ATLAS_MAP_SIZE - 13, Math.max(x1 + 5, Math.ceil(f.maxX)));
     const y2 = Math.min(ATLAS_MAP_SIZE - 13, Math.max(y1 + 5, Math.ceil(f.maxY)));
+
+    // Skip if footprint overlaps an existing road or Quarry Safe Hub boundary
+    let blockedByRoadOrQuarry = false;
+    for (let yy = y1; yy <= y2 && !blockedByRoadOrQuarry; yy++) {
+      for (let xx = x1; xx <= x2; xx++) {
+        if (isInsideQuarryHub && isInsideQuarryHub(xx, yy)) {
+          blockedByRoadOrQuarry = true;
+          break;
+        }
+        const lx = xx - baseX;
+        const ly = yy - baseY;
+        if (lx >= 0 && lx < CHUNK_SIZE && ly >= 0 && ly < CHUNK_SIZE) {
+          if (chunk.tiles[ly * CHUNK_SIZE + lx] === 3) {
+            blockedByRoadOrQuarry = true;
+            break;
+          }
+        }
+      }
+    }
+    if (blockedByRoadOrQuarry) continue;
 
     const bTag = f.props.building;
     const isCommercial =
@@ -388,8 +432,34 @@ export function applyAtlasToChunk(chunk, baseX, baseY, CHUNK_SIZE, stampCompound
         ? 'Rockmart Storefront'
         : 'Local Residence');
 
-    const doorX = Math.floor((x1 + x2) / 2);
-    const doorY = y2;
+    // Place door on whichever edge faces an adjacent street/sidewalk, defaulting to South (y2)
+    let doorX = Math.floor((x1 + x2) / 2);
+    let doorY = y2;
+    let dir = { dx: 0, dy: 1 };
+
+    const checkWalkableOutside = (tx, ty) => {
+      const lx = tx - baseX;
+      const ly = ty - baseY;
+      if (lx < 0 || lx >= CHUNK_SIZE || ly < 0 || ly >= CHUNK_SIZE) return true;
+      const t = chunk.tiles[ly * CHUNK_SIZE + lx];
+      return t === 0 || t === 1 || t === 3 || t === 5;
+    };
+
+    if (!checkWalkableOutside(doorX, y2 + 1)) {
+      if (checkWalkableOutside(doorX, y1 - 1)) {
+        doorY = y1;
+        dir = { dx: 0, dy: -1 };
+      } else if (checkWalkableOutside(x2 + 1, Math.floor((y1 + y2) / 2))) {
+        doorX = x2;
+        doorY = Math.floor((y1 + y2) / 2);
+        dir = { dx: 1, dy: 0 };
+      } else if (checkWalkableOutside(x1 - 1, Math.floor((y1 + y2) / 2))) {
+        doorX = x1;
+        doorY = Math.floor((y1 + y2) / 2);
+        dir = { dx: -1, dy: 0 };
+      }
+    }
+
     const seed = ((x1 * 31 + y1 * 17) % 100) / 100;
 
     stampCompoundBuilding(chunk, {
@@ -398,7 +468,7 @@ export function applyAtlasToChunk(chunk, baseX, baseY, CHUNK_SIZE, stampCompound
       category: isCommercial ? 'commercial' : 'house',
       rects: [{ x1, y1, x2, y2 }],
       doorSpecs: [
-        { x: doorX, y: doorY, state: isCommercial ? 'locked' : 'unlocked', dir: { dx: 0, dy: 1 } }
+        { x: doorX, y: doorY, state: isCommercial ? 'locked' : 'unlocked', dir }
       ],
       seed
     });
