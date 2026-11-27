@@ -3,12 +3,23 @@ import {
   CENTER,
   QUARRY_X,
   QUARRY_Y,
+  QUARRY_RX,
+  QUARRY_RY,
+  getQuarryCenter,
   getTileAt,
   getActiveChunks,
   droppedLoot
 } from './chunks.js';
 
-export { MAP_SIZE, CENTER, QUARRY_X, QUARRY_Y };
+export {
+  MAP_SIZE,
+  CENTER,
+  QUARRY_X,
+  QUARRY_Y,
+  QUARRY_RX,
+  QUARRY_RY,
+  getQuarryCenter
+};
 export const TILE_W = 64;
 export const TILE_H = 32;
 
@@ -44,9 +55,10 @@ export function worldToScreen(wx, wy, camX, camY) {
   };
 }
 
+// Iron Convoy Garage, Workbench & Campfire inside resized Quarry Safe Hub (540, 745)
 export const convoyGarage = {
-  x: 509.5,
-  y: 598.5,
+  x: QUARRY_X - 10.5,
+  y: QUARRY_Y - 11.5,
   points: 0,
   targetPoints: 20,
   specialists: 0,
@@ -54,14 +66,24 @@ export const convoyGarage = {
 };
 
 export const quarryWorkbench = {
-  x: 531.5,
-  y: 598.5
+  x: QUARRY_X + 11.5,
+  y: QUARRY_Y - 11.5
 };
 
 export const quarryCampfire = {
-  x: 520.5,
-  y: 610.5
+  x: QUARRY_X + 0.5,
+  y: QUARRY_Y + 0.5
 };
+
+export function syncQuarryLandmarks() {
+  const qc = getQuarryCenter();
+  convoyGarage.x = qc.x - 10.5;
+  convoyGarage.y = qc.y - 11.5;
+  quarryWorkbench.x = qc.x + 11.5;
+  quarryWorkbench.y = qc.y - 11.5;
+  quarryCampfire.x = qc.x + 0.5;
+  quarryCampfire.y = qc.y + 0.5;
+}
 
 export const policePrecinct = {
   x: 565.5,
@@ -101,8 +123,8 @@ const DISTRESS_LOCATIONS = [
   },
   {
     name: 'Engineer Brooks',
-    x: 562.5,
-    y: 735.5,
+    x: 572.5,
+    y: 835.5,
     callout: 'Stranded at a rural farmhouse on Hutchins Mountain Rd!'
   }
 ];
