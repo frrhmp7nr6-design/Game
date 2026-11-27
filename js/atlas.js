@@ -1,4 +1,4 @@
-import { MAP_SIZE } from './chunks.js';
+const ATLAS_MAP_SIZE = 1024;
 
 // Rockmart, GA bounding box (1024 tiles x ~2.5m = ~2.56 km)
 const DEFAULT_BOUNDS = {
@@ -22,8 +22,8 @@ export const atlasState = {
 };
 
 export function latLonToTile(lat, lon) {
-  const tx = ((lon - atlasBounds.minLon) / (atlasBounds.maxLon - atlasBounds.minLon)) * MAP_SIZE;
-  const ty = ((atlasBounds.maxLat - lat) / (atlasBounds.maxLat - atlasBounds.minLat)) * MAP_SIZE;
+  const tx = ((lon - atlasBounds.minLon) / (atlasBounds.maxLon - atlasBounds.minLon)) * ATLAS_MAP_SIZE;
+  const ty = ((atlasBounds.maxLat - lat) / (atlasBounds.maxLat - atlasBounds.minLat)) * ATLAS_MAP_SIZE;
   return { x: tx, y: ty };
 }
 
@@ -266,7 +266,7 @@ export function applyAtlasToChunk(chunk, baseX, baseY, CHUNK_SIZE, stampCompound
       const wx = baseX + lx + 0.5;
       const idx = ly * CHUNK_SIZE + lx;
 
-      if (wx < 10 || wy < 10 || wx >= MAP_SIZE - 10 || wy >= MAP_SIZE - 10) {
+      if (wx < 10 || wy < 10 || wx >= ATLAS_MAP_SIZE - 10 || wy >= ATLAS_MAP_SIZE - 10) {
         chunk.tiles[idx] = 2;
         continue;
       }
@@ -358,8 +358,8 @@ export function applyAtlasToChunk(chunk, baseX, baseY, CHUNK_SIZE, stampCompound
 
     const x1 = Math.max(12, Math.floor(f.minX));
     const y1 = Math.max(12, Math.floor(f.minY));
-    const x2 = Math.min(MAP_SIZE - 13, Math.max(x1 + 5, Math.ceil(f.maxX)));
-    const y2 = Math.min(MAP_SIZE - 13, Math.max(y1 + 5, Math.ceil(f.maxY)));
+    const x2 = Math.min(ATLAS_MAP_SIZE - 13, Math.max(x1 + 5, Math.ceil(f.maxX)));
+    const y2 = Math.min(ATLAS_MAP_SIZE - 13, Math.max(y1 + 5, Math.ceil(f.maxY)));
 
     const bTag = f.props.building;
     const isCommercial =
