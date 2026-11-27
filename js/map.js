@@ -1,12 +1,14 @@
 import {
   MAP_SIZE,
   CENTER,
+  QUARRY_X,
+  QUARRY_Y,
   getTileAt,
   getActiveChunks,
   droppedLoot
 } from './chunks.js';
 
-export { MAP_SIZE, CENTER };
+export { MAP_SIZE, CENTER, QUARRY_X, QUARRY_Y };
 export const TILE_W = 64;
 export const TILE_H = 32;
 
@@ -42,23 +44,32 @@ export function worldToScreen(wx, wy, camX, camY) {
   };
 }
 
+// Iron Convoy Garage inside Rockmart Quarry Hub (509, 598)
 export const convoyGarage = {
-  x: 501.5,
-  y: 501.5,
+  x: 509.5,
+  y: 598.5,
   points: 0,
   targetPoints: 20,
   specialists: 0,
   launched: false
 };
 
+// Quarry Workbench inside Quarry Depot (531, 598)
 export const quarryWorkbench = {
-  x: 523.5,
-  y: 500.5
+  x: 531.5,
+  y: 598.5
 };
 
+// Central Quarry Campfire
 export const quarryCampfire = {
-  x: 512.5,
-  y: 512.5
+  x: 520.5,
+  y: 610.5
+};
+
+// Rockmart Police Precinct waypoint (568, 468)
+export const policePrecinct = {
+  x: 568.5,
+  y: 468.5
 };
 
 export const campUpgrades = {
@@ -67,44 +78,65 @@ export const campUpgrades = {
   watchtower: false
 };
 
-const SPECIALIST_ROLES = [
-  'Mechanic Dale',
-  'Nurse Clara',
-  'Gunsmith Marcus',
-  'Quartermaster Mae',
-  'Engineer Brooks',
-  'Scout Elena'
+// Hidden Trapped Survivors — NO automatic minimap icons until a Police Radio picks up their distress call!
+const DISTRESS_LOCATIONS = [
+  {
+    name: 'Mechanic Dale',
+    x: 499.5,
+    y: 465.5,
+    callout: 'Pinned down behind Hometown Pizza on Elm St!'
+  },
+  {
+    name: 'Nurse Clara',
+    x: 595.5,
+    y: 432.5,
+    callout: 'Trapped near N Piedmont Ave & College St!'
+  },
+  {
+    name: 'Gunsmith Marcus',
+    x: 432.5,
+    y: 518.5,
+    callout: 'Hiding in the woods off Morgan Valley Rd!'
+  },
+  {
+    name: 'Quartermaster Mae',
+    x: 468.5,
+    y: 256.5,
+    callout: 'Barricaded near Low True Hardware on US-278!'
+  },
+  {
+    name: 'Engineer Brooks',
+    x: 562.5,
+    y: 735.5,
+    callout: 'Stranded south along Hutchins Mountain Rd!'
+  }
 ];
 
 export const rescueEvent = {
   active: false,
   id: 0,
   name: 'Mechanic Dale',
-  x: 540.5,
-  y: 430.5,
-  following: false
+  callout: '',
+  x: 499.5,
+  y: 465.5,
+  following: false,
+  radioPingTimer: 0 // > 0 when Police Radio actively picks up their distress call
 };
 
 export const rescuedSpecialists = [];
 
 export function spawnNextRescueFlare() {
   const id = rescueEvent.id + 1;
-  const angle = Math.random() * Math.PI * 2;
-  const dist = 85 + Math.random() * 80;
-  let fx = Math.round(CENTER + Math.cos(angle) * dist) + 0.5;
-  let fy = Math.round(CENTER + Math.sin(angle) * dist) + 0.5;
-
-  for (let tries = 0; tries < 12; tries++) {
-    if (getTileAt(Math.floor(fx), Math.floor(fy)) !== 2) break;
-    fx += 1;
-  }
+  const spot = DISTRESS_LOCATIONS[(id - 1) % DISTRESS_LOCATIONS.length];
 
   rescueEvent.active = true;
   rescueEvent.id = id;
-  rescueEvent.name = SPECIALIST_ROLES[(id - 1) % SPECIALIST_ROLES.length];
-  rescueEvent.x = fx;
-  rescueEvent.y = fy;
+  rescueEvent.name = spot.name;
+  rescueEvent.callout = spot.callout;
+  rescueEvent.x = spot.x;
+  rescueEvent.y = spot.y;
   rescueEvent.following = false;
+  rescueEvent.radioPingTimer = 0;
   return rescueEvent;
 }
 
