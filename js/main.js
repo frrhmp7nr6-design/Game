@@ -18,12 +18,14 @@ import {
   isInsideQuarryHub,
   getTileAt,
   getActiveChunks,
+  clearChunkCache,
   getZoneInfo,
   openedDoors,
   doorDamage,
   lootedIds,
   killedZombieIds
 } from './chunks.js';
+import { initAtlas, atlasState } from './atlas.js';
 import { sticks, keys, sprintHeld, initInput } from './input.js';
 import {
   inventory,
@@ -83,7 +85,6 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
-// Spawn inside the offset Rockmart Slate Quarry Safe Hub (518, 608)
 const player = {
   x: 518.5,
   y: 608.5,
@@ -118,6 +119,26 @@ let nearWorkbench = false;
 
 const { toggleBag } = initInventory(player);
 spawnNextRescueFlare();
+
+function refreshAtlas(force = false) {
+  coordsEl.textContent = '🌐 Loading Rockmart OSM...';
+  initAtlas((state) => {
+    clearChunkCache();
+    activeChunks = getActiveChunks(player.x, player.y, 1);
+    if (state.loaded) {
+      showToast(`🗺️ Loaded ${state.features.length} real Rockmart OSM features (${state.source})!`);
+    } else {
+      showToast(`⚠️ OSM mirrors busy (${state.error}) — tap location pill to retry`);
+    }
+  }, force);
+}
+
+coordsEl.style.pointerEvents = 'auto';
+coordsEl.style.cursor = 'pointer';
+coordsEl.title = 'Tap to reload real Rockmart OSM map data';
+coordsEl.addEventListener('click', () => refreshAtlas(true));
+
+refreshAtlas(false);
 
 closeCraftBtn.addEventListener('click', () => {
   craftModal.classList.remove('open');
@@ -168,7 +189,11 @@ document.querySelectorAll('.arch-btn').forEach((btn) => {
     archBadge.textContent = arch.toUpperCase();
     archModal.classList.add('hidden');
     player.started = true;
-    showToast('Head north up S Marble St to raid Rockmart Police Precinct for Radios!');
+    if (atlasState.loaded) {
+      showToast(`🗺️ Live Rockmart OSM active (${atlasState.features.length} features)!`);
+    } else {
+      showToast('Head north up S Marble St to raid Rockmart Police Precinct for Radios!');
+    }
   });
 });
 
@@ -342,7 +367,6 @@ function getObjectiveTarget() {
     return { x: convoyGarage.x, y: convoyGarage.y, isGarage: true, color: '#4ade80' };
   }
 
-  // Only guide toward trapped survivor if Police Radio actively received their distress signal!
   if (rescueEvent.active && !rescueEvent.following && rescueEvent.radioPingTimer > 0) {
     return { x: rescueEvent.x, y: rescueEvent.y, isGarage: false, color: '#f472b6' };
   }
@@ -436,7 +460,6 @@ function update(dt) {
     if (player.carryingCrate) {
       speed *= player.archetype === 'scavenger' ? 0.85 : 0.65;
     }
-    // Wading through shallow Euharlee Creek water slows movement by 25%
     if (getTileAt(Math.floor(player.x), Math.floor(player.y)) === 4) {
       speed *= 0.75;
     }
@@ -474,7 +497,6 @@ function update(dt) {
     player.angle = Math.atan2(sticks.look.dy, sticks.look.dx);
   }
 
-  // Escorting rescued survivor back inside the irregular Rockmart Quarry Safe Hub
   if (rescueEvent.active && rescueEvent.following) {
     const distToPlayer = Math.hypot(player.x - rescueEvent.x, player.y - rescueEvent.y);
     if (distToPlayer > 1.35) {
@@ -634,7 +656,8 @@ function update(dt) {
   stamVal.textContent = `${Math.ceil(player.stamina)}%`;
   foodVal.textContent = `${Math.ceil(player.hunger)}%`;
   coordsEl.style.color = zone.color;
-  coordsEl.textContent = `${zone.name} • ${Math.floor(player.x)},${Math.floor(player.y)}`;
+  const osmTag = atlasState.loaded ? 'OSM' : 'SIM';
+  coordsEl.textContent = `${zone.name} [${osmTag}] • ${Math.floor(player.x)},${Math.floor(player.y)}`;
 }
 
 let lastTime = performance.now();
