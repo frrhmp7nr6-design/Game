@@ -221,15 +221,14 @@ function generateChunk(cx, cy) {
     const ly = Math.floor((by1 + by2) / 2) + 0.5;
     const crateRoll = hash2d(cx + 51, cy + 59);
 
-    // ~35% chance to spawn a high-value Heavy Supply Crate (+4 Convoy pts, slows carrier)
     const supplyItem =
-      crateRoll > 0.65
+      zone.ring === 3
+        ? { name: 'Prototype Convoy Core', type: 'heavy', value: 6, color: '#e879f9' }
+        : crateRoll > 0.65
         ? { name: 'Heavy Supply Crate', type: 'heavy', value: 4, color: '#fb923c' }
         : zone.ring === 1
         ? { name: 'Scrap Plating', type: 'convoy', value: 1, color: '#22d3ee' }
-        : zone.ring === 2
-        ? { name: 'Tanker Fuel Drum', type: 'convoy', value: 2, color: '#f59e0b' }
-        : { name: 'Military Convoy Armor', type: 'convoy', value: 3, color: '#a855f7' };
+        : { name: 'Tanker Fuel Drum', type: 'convoy', value: 2, color: '#f59e0b' };
 
     addChunkLoot(chunk, `loot-main-${cx}-${cy}`, lx, ly, supplyItem);
 
@@ -249,7 +248,15 @@ function generateChunk(cx, cy) {
     }
     addChunkLoot(chunk, `loot-sec-${cx}-${cy}`, bx1 + 2.5, by1 + 2.5, secItem);
 
-    addChunkZombie(chunk, `z-in-${cx}-${cy}`, bx2 - 2.5, by1 + 2.5, zone.ring);
+    // Ring 3 Strongholds spawn a Quarantine Juggernaut Boss inside
+    addChunkZombie(
+      chunk,
+      `z-in-${cx}-${cy}`,
+      bx2 - 2.5,
+      by1 + 2.5,
+      zone.ring,
+      zone.ring === 3
+    );
   }
 
   const outdoorCount = zone.ring === 1 ? 2 : zone.ring === 2 ? 3 : 4;
@@ -259,7 +266,7 @@ function generateChunk(cx, cy) {
     const tx = zx - baseX;
     const ty = zy - baseY;
     if (tiles[Math.floor(ty) * CHUNK_SIZE + Math.floor(tx)] !== 2) {
-      addChunkZombie(chunk, `z-out-${cx}-${cy}-${i}`, zx, zy, zone.ring);
+      addChunkZombie(chunk, `z-out-${cx}-${cy}-${i}`, zx, zy, zone.ring, false);
     }
   }
 
@@ -271,14 +278,15 @@ function addChunkLoot(chunk, id, x, y, props) {
   chunk.loot.push({ id, x, y, ...props });
 }
 
-function addChunkZombie(chunk, id, x, y, ring) {
+function addChunkZombie(chunk, id, x, y, ring, isBoss = false) {
   if (killedZombieIds.has(id)) return;
-  const tier =
-    ring === 1
-      ? { kind: 'walker', hp: 95, speed: 1.85, dmg: 11, color: '#4d7c0f', scale: 1 }
-      : ring === 2
-      ? { kind: 'sprinter', hp: 120, speed: 2.55, dmg: 15, color: '#ca8a04', scale: 1.05 }
-      : { kind: 'brute', hp: 210, speed: 1.75, dmg: 22, color: '#991b1b', scale: 1.25 };
+  const tier = isBoss
+    ? { kind: 'juggernaut', hp: 450, speed: 2.0, dmg: 28, color: '#a21caf', scale: 1.55, isBoss: true }
+    : ring === 1
+    ? { kind: 'walker', hp: 95, speed: 1.85, dmg: 11, color: '#4d7c0f', scale: 1, isBoss: false }
+    : ring === 2
+    ? { kind: 'sprinter', hp: 120, speed: 2.55, dmg: 15, color: '#ca8a04', scale: 1.05, isBoss: false }
+    : { kind: 'brute', hp: 210, speed: 1.75, dmg: 22, color: '#991b1b', scale: 1.25, isBoss: false };
 
   const ang = hash2d(Math.floor(x * 7), Math.floor(y * 11)) * Math.PI * 2;
   chunk.zombies.push({
@@ -292,6 +300,7 @@ function addChunkZombie(chunk, id, x, y, ring) {
     color: tier.color,
     scale: tier.scale,
     kind: tier.kind,
+    isBoss: tier.isBoss,
     attackCd: 0,
     hitFlash: 0,
     lungeTimer: 0,
