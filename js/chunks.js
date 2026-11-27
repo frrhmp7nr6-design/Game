@@ -1,655 +1,881 @@
-import {
-  QUARRY_X,
-  QUARRY_Y,
-  camera,
-  rotateCamera,
-  convoyGarage,
-  quarryWorkbench,
-  quarryCampfire,
-  campUpgrades,
-  rescueEvent,
-  rescuedSpecialists,
-  spawnNextRescueFlare,
-  worldToScreen,
-  canWalkTo,
-  getNearbyLootList
-} from './map.js';
-import {
-  isInsideQuarryHub,
-  getTileAt,
-  getActiveChunks,
-  clearChunkCache,
-  getZoneInfo,
-  openedDoors,
-  doorDamage,
-  lootedIds,
-  killedZombieIds
-} from './chunks.js';
-import { initAtlas } from './atlas.js';
-import { sticks, keys, sprintHeld, initInput } from './input.js';
-import {
-  inventory,
-  applyArchetypeLoadout,
-  initInventory,
-  openCraftingBench,
-  hasPoliceRadio,
-  scanPoliceRadio,
-  grabLootItem,
-  dropHeavyCrate,
-  deliverConvoySupplies,
-  hasLockpick,
-  consumeLockpick,
-  showToast
-} from './inventory.js';
-import { updateCombat, WEAPONS, fxList } from './combat.js';
-import { renderFrame, renderMinimap } from './render.js';
-import {
-  initNetwork,
-  broadcastPlayerState,
-  broadcastWorldEvent,
-  remotePlayers
-} from './net.js';
+import { atlasState, applyAtlasToChunk } from './atlas.js';
 
-const canvas = document.getElementById('game');
-const ctx = canvas.getContext('2d');
-const miniCanvas = document.getElementById('minimap');
-const mctx = miniCanvas.getContext('2d');
+export const CHUNK_SIZE = 32;
+export const WORLD_CHUNKS = 32;
+export const MAP_SIZE = CHUNK_SIZE * WORLD_CHUNKS; // 1024
+export const CENTER = 512;
 
-const archModal = document.getElementById('archetype-modal');
-const craftModal = document.getElementById('craft-modal');
-const closeCraftBtn = document.getElementById('close-craft-btn');
-const archBadge = document.getElementById('arch-badge');
-const scrapPill = document.getElementById('scrap-pill');
-const hpFill = document.getElementById('hp-fill');
-const stamFill = document.getElementById('stam-fill');
-const foodFill = document.getElementById('food-fill');
-const hpVal = document.getElementById('hp-val');
-const stamVal = document.getElementById('stam-val');
-const foodVal = document.getElementById('food-val');
-const coordsEl = document.getElementById('coords');
-const grabBtn = document.getElementById('grab-btn');
-const doorBtn = document.getElementById('door-btn');
-const repairBtn = document.getElementById('repair-btn');
-const specialBtn = document.getElementById('special-btn');
-const missionPctEl = document.getElementById('mission-pct');
-const specCountEl = document.getElementById('spec-count');
-const missionSubEl = document.getElementById('mission-sub');
-const missionFillEl = document.getElementById('mission-fill');
-const gameOverEl = document.getElementById('gameover');
+export const QUARRY_X = 520;
+export const QUARRY_Y = 610;
 
-function resize() {
-  canvas.width = window.innerWidth * devicePixelRatio;
-  canvas.height = window.innerHeight * devicePixelRatio;
-  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-}
-window.addEventListener('resize', resize);
-resize();
+const chunkCache = new Map();
 
-const player = {
-  x: 518.5,
-  y: 608.5,
-  radius: 0.28,
-  angle: -Math.PI / 4,
-  walkSpeed: 4.5,
-  sprintSpeed: 7.6,
-  archetype: 'bruiser',
-  bagCapacity: 8,
-  carryingCrate: null,
-  scrap: 2,
-  hp: 100,
-  maxHp: 100,
-  stamina: 100,
-  maxStamina: 100,
-  hunger: 85,
-  maxHunger: 100,
-  equippedWeapon: 'fists',
-  attackTimer: 0,
-  hurtFlash: 0,
-  isSprinting: false,
-  exhausted: false,
-  dead: false,
-  started: false
-};
-
-let activeChunks = getActiveChunks(player.x, player.y, 1);
-let nearbyLoot = null;
-let nearbyDoor = null;
-let canRescueNow = false;
-let nearWorkbench = false;
-
-const { toggleBag } = initInventory(player);
-spawnNextRescueFlare();
-
-initAtlas((state) => {
-  clearChunkCache();
-  activeChunks = getActiveChunks(player.x, player.y, 1);
-  showToast(`🗺️ Loaded ${state.features.length} Rockmart OSM map features!`);
-});
-
-closeCraftBtn.addEventListener('click', () => {
-  craftModal.classList.remove('open');
-});
-
-initNetwork(player, {
-  onRemoteDoor: ({ key, state }) => {
-    if (state === 'open') openedDoors.add(key);
-    else openedDoors.delete(key);
-    for (const c of activeChunks) {
-      const d = c.doors.find((item) => item.key === key);
-      if (d) d.state = state;
-    }
-  },
-  onRemoteLoot: ({ id }) => {
-    lootedIds.add(id);
-    for (const c of activeChunks) {
-      const idx = c.loot.findIndex((item) => item.id === id);
-      if (idx !== -1) c.loot.splice(idx, 1);
-    }
-  },
-  onRemoteZombieKill: ({ id }) => {
-    killedZombieIds.add(id);
-    for (const c of activeChunks) {
-      const idx = c.zombies.findIndex((z) => z.id === id);
-      if (idx !== -1) c.zombies.splice(idx, 1);
-    }
-  },
-  onRemoteConvoy: ({ points, specialists, launched }) => {
-    if (typeof points === 'number' && points > convoyGarage.points) {
-      convoyGarage.points = points;
-    }
-    if (typeof specialists === 'number' && specialists > convoyGarage.specialists) {
-      convoyGarage.specialists = specialists;
-      showToast(`🎉 Teammate rescued a Quarry Specialist! (${specialists} NPCs)`);
-    }
-    if (launched && !convoyGarage.launched) {
-      convoyGarage.launched = true;
-      showToast('🚛 IRON CONVOY LAUNCHED! Act 1 Complete!');
-    }
-  }
-});
-
-document.querySelectorAll('.arch-btn').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    const arch = btn.dataset.arch;
-    applyArchetypeLoadout(player, arch);
-    archBadge.textContent = arch.toUpperCase();
-    archModal.classList.add('hidden');
-    player.started = true;
-    showToast('Head north up S Marble St to raid Rockmart Police Precinct for Radios!');
-  });
-});
-
-function handleDoorAction() {
-  if (!nearbyDoor || player.dead) return;
-  const d = nearbyDoor;
-
-  if (d.state === 'unlocked') {
-    d.state = 'open';
-    openedDoors.add(d.key);
-    broadcastWorldEvent({ kind: 'door', key: d.key, state: 'open' });
-    showToast('Opened door');
-    return;
-  }
-
-  if (d.state === 'open') {
-    if (Math.floor(player.x) === d.x && Math.floor(player.y) === d.y) {
-      showToast('Step out of doorway first');
-      return;
-    }
-    d.state = 'unlocked';
-    openedDoors.delete(d.key);
-    broadcastWorldEvent({ kind: 'door', key: d.key, state: 'unlocked' });
-    showToast('Closed door');
-    return;
-  }
-
-  if (d.state === 'locked') {
-    if (hasLockpick()) {
-      consumeLockpick(player);
-      d.state = 'open';
-      openedDoors.add(d.key);
-      broadcastWorldEvent({ kind: 'door', key: d.key, state: 'open' });
-      showToast('🔓 Picked lock!');
-      return;
-    }
-    smashDoor(d);
-    return;
-  }
-
-  if (d.state === 'barricaded') {
-    smashDoor(d);
-  }
+export function clearChunkCache() {
+  chunkCache.clear();
 }
 
-function smashDoor(d) {
-  const weapon = WEAPONS[player.equippedWeapon] || WEAPONS.fists;
-  if (weapon.type === 'ranged') {
-    showToast('Equip a Crowbar or Fire Axe to smash doors!');
-    return;
-  }
-  if (player.stamina < 10) {
-    showToast('Too exhausted to bash door!');
-    return;
-  }
+export const openedDoors = new Set();
+export const doorDamage = new Map();
+export const lootedIds = new Set();
+export const killedZombieIds = new Set();
+export const droppedLoot = [];
 
-  player.stamina = Math.max(0, player.stamina - 10);
-  const dmg = player.archetype === 'bruiser' ? Math.round(weapon.damage * 1.35) : weapon.damage;
-  d.hp = Math.max(0, d.hp - dmg);
-  doorDamage.set(d.key, d.hp);
-
-  fxList.push({
-    type: 'melee',
-    fromX: player.x,
-    fromY: player.y,
-    toX: d.x + 0.5,
-    toY: d.y + 0.5,
-    angle: player.angle,
-    life: 0.16,
-    maxLife: 0.16
-  });
-
-  if (d.hp === 0) {
-    d.state = 'open';
-    openedDoors.add(d.key);
-    broadcastWorldEvent({ kind: 'door', key: d.key, state: 'open' });
-    showToast('💥 Smashed door open!');
-  } else {
-    showToast(`Bashed door (${Math.ceil((d.hp / d.maxHp) * 100)}% left)`);
-  }
+function hash2d(x, y) {
+  let n = Math.imul(x, 374761393) + Math.imul(y, 668265263);
+  n = (n ^ (n >> 13)) >>> 0;
+  n = Math.imul(n, 1274126177) >>> 0;
+  return ((n ^ (n >> 16)) >>> 0) / 4294967296;
 }
 
-function handleConvoyLoad() {
-  const distToGarage = Math.hypot(convoyGarage.x - player.x, convoyGarage.y - player.y);
-  if (distToGarage > 2.4) return;
+export function isInsideQuarryHub(wx, wy) {
+  const dx = (wx - QUARRY_X) / 68;
+  const dy = (wy - QUARRY_Y) / 54;
+  const angle = Math.atan2(dy, dx);
+  const wobble =
+    0.12 * Math.sin(angle * 3 + 0.6) +
+    0.07 * Math.cos(angle * 5 - 1.1);
+  return Math.hypot(dx, dy) <= 1.0 + wobble;
+}
 
-  if (convoyGarage.points >= convoyGarage.targetPoints && !convoyGarage.launched) {
-    convoyGarage.launched = true;
-    broadcastWorldEvent({
-      kind: 'convoy',
-      points: convoyGarage.points,
-      specialists: convoyGarage.specialists,
-      launched: true
-    });
-    gameOverEl.querySelector('h1').style.color = '#4ade80';
-    gameOverEl.querySelector('h1').textContent = 'IRON CONVOY LAUNCHED!';
-    gameOverEl.querySelector('p').textContent =
-      `Act 1 Complete! Your armored convoy departed Rockmart Quarry with ${convoyGarage.specialists} Specialists.`;
-    gameOverEl.querySelector('button').textContent = 'Continue Roaming Act 1';
-    gameOverEl.querySelector('button').onclick = () => gameOverEl.classList.remove('show');
-    gameOverEl.classList.add('show');
-    return;
-  }
-
-  const added = deliverConvoySupplies(player);
-  if (added === 0) {
-    showToast('Scavenge Supplies or Heavy Crates in Rockmart!');
-    return;
-  }
-
-  broadcastWorldEvent({
-    kind: 'convoy',
-    points: convoyGarage.points,
-    specialists: convoyGarage.specialists
-  });
-  showToast(
-    `🚛 Loaded +${added} Convoy Supplies & earned +${added * 2} Scrap!`
+function isQuarryPerimeter(wx, wy) {
+  if (!isInsideQuarryHub(wx, wy)) return false;
+  return (
+    !isInsideQuarryHub(wx + 1, wy) ||
+    !isInsideQuarryHub(wx - 1, wy) ||
+    !isInsideQuarryHub(wx, wy + 1) ||
+    !isInsideQuarryHub(wx, wy - 1)
   );
 }
 
-function handleSpecialAction() {
-  if (player.dead) return;
-  if (canRescueNow && rescueEvent.active && !rescueEvent.following) {
-    rescueEvent.following = true;
-    showToast(`🏃 Escorting ${rescueEvent.name} back to Rockmart Quarry Hub!`);
-    return;
-  }
-  if (nearWorkbench) {
-    openCraftingBench(player);
-    return;
-  }
-  if (player.carryingCrate) {
-    dropHeavyCrate(player);
-    return;
-  }
-  if (hasPoliceRadio()) {
-    scanPoliceRadio(player);
-  }
+export function isCreekTile(wx, wy) {
+  const creekCenter =
+    655 +
+    Math.sin(wy * 0.018) * 32 +
+    Math.cos(wy * 0.045) * 14;
+  return Math.abs(wx - creekCenter) <= 3.2;
 }
 
-initInput(canvas, player, {
-  onGrab: () => {
-    const targetItem = nearbyLoot;
-    if (grabLootItem(player, targetItem, activeChunks)) {
-      if (targetItem && targetItem.id) {
-        broadcastWorldEvent({ kind: 'loot', id: targetItem.id });
-      }
-      nearbyLoot = null;
-      grabBtn.classList.remove('visible');
-    }
-  },
-  onDoor: handleDoorAction,
-  onRepair: handleConvoyLoad,
-  onSpecial: handleSpecialAction,
-  onRotate: () => {
-    const rot = rotateCamera();
-    showToast(`Camera: ${rot * 90}°`);
-  },
-  onToggleBag: toggleBag
-});
-
-function getObjectiveTarget() {
-  if (rescueEvent.active && rescueEvent.following) {
-    return { x: QUARRY_X, y: QUARRY_Y, isGarage: true, color: '#f472b6' };
-  }
-  if (
-    convoyGarage.points >= convoyGarage.targetPoints ||
-    player.carryingCrate ||
-    inventory.some((i) => i.type === 'convoy')
-  ) {
-    return { x: convoyGarage.x, y: convoyGarage.y, isGarage: true, color: '#4ade80' };
+export function classifyRoad(wx, wy) {
+  const i20Y = 115 + Math.sin(wx * 0.005) * 8;
+  const dyI20 = wy - i20Y;
+  if (Math.abs(dyI20) <= 3.6) {
+    if (Math.abs(dyI20) <= 0.55) return { tile: 2, kind: 'median' };
+    return { tile: 3, kind: 'freeway' };
   }
 
-  if (rescueEvent.active && !rescueEvent.following && rescueEvent.radioPingTimer > 0) {
-    return { x: rescueEvent.x, y: rescueEvent.y, isGarage: false, color: '#f472b6' };
-  }
-
-  const lootList = getNearbyLootList(activeChunks);
-  let closest = null;
-  let bestDist = Infinity;
-  for (const item of lootList) {
-    if (item.type === 'convoy' || item.type === 'heavy' || item.type === 'radio') {
-      const d = Math.hypot(item.x - player.x, item.y - player.y);
-      if (d < bestDist) {
-        bestDist = d;
-        closest = {
-          x: item.x,
-          y: item.y,
-          isGarage: false,
-          color:
-            item.type === 'heavy'
-              ? '#fb923c'
-              : item.type === 'radio'
-              ? '#38bdf8'
-              : '#22d3ee'
-        };
-      }
+  if (wy >= 115 && wy <= 252) {
+    const t = (wy - 115) / 137;
+    const westRampX = 530 + t * 44;
+    const eastRampX = 622 - t * 44;
+    if (Math.abs(wx - westRampX) <= 1.4 || Math.abs(wx - eastRampX) <= 1.4) {
+      return { tile: 3, kind: 'ramp' };
     }
   }
-  return closest;
+
+  const us278Y = 252 + Math.sin(wx * 0.007) * 10;
+  if (Math.abs(wy - us278Y) <= 2.3) {
+    return { tile: 3, kind: 'highway' };
+  }
+
+  if (wy >= 250 && wy <= 542) {
+    const dxBlvd = wx - 576;
+    if (Math.abs(dxBlvd) <= 2.6) {
+      if (Math.abs(dxBlvd) <= 0.5) return { tile: 0, kind: 'median' };
+      return { tile: 3, kind: 'boulevard' };
+    }
+  }
+
+  const marbleX = 520 + (wy < 555 ? (555 - wy) * 0.14 : 0);
+  if (wy >= 252 && wy <= 625 && Math.abs(wx - marbleX) <= 1.8) {
+    return { tile: 3, kind: 'avenue' };
+  }
+
+  const inDowntown = wx >= 360 && wx <= 630 && wy >= 290 && wy <= 540;
+  const inSuburb = wx >= 220 && wx <= 360 && wy >= 340 && wy <= 500;
+
+  if (inDowntown) {
+    for (const ay of [310, 358, 406, 454, 502]) {
+      if (Math.abs(wy - ay) <= 1.7) return { tile: 3, kind: 'avenue' };
+    }
+    for (const sx of [384, 448, 512, 624]) {
+      if (Math.abs(wx - sx) <= 1.4) return { tile: 3, kind: 'street' };
+    }
+  }
+
+  if (inSuburb) {
+    if (Math.abs(wy - 360) <= 1.4 || Math.abs(wy - 480) <= 1.4) return { tile: 3, kind: 'street' };
+    if (Math.abs(wx - 240) <= 1.4 || Math.abs(wx - 320) <= 1.4) return { tile: 3, kind: 'street' };
+  }
+
+  if (wx < 515 && wy > 460) {
+    const morganY = 485 + (515 - wx) * 0.42 + Math.sin(wx * 0.022) * 18;
+    if (Math.abs(wy - morganY) <= 1.4) return { tile: 3, kind: 'rural' };
+  }
+  if (wy > 605) {
+    const hutchinsX = 520 + (wy - 605) * 0.28 + Math.sin(wy * 0.02) * 20;
+    if (Math.abs(wx - hutchinsX) <= 1.4) return { tile: 3, kind: 'rural' };
+  }
+
+  if (wy > 650 && wx < 500) {
+    const dirtY = 740 + Math.sin(wx * 0.03) * 28;
+    if (Math.abs(wy - dirtY) <= 1.1) return { tile: 5, kind: 'dirt' };
+  }
+  if (wx > 690 && wy > 320) {
+    const dirtX = 780 + Math.cos(wy * 0.025) * 32;
+    if (Math.abs(wx - dirtX) <= 1.1) return { tile: 5, kind: 'dirt' };
+  }
+
+  if (inDowntown) {
+    for (const ay of [310, 358, 406, 454, 502]) {
+      if (Math.abs(wy - ay) <= 2.6) return { tile: 1, kind: 'sidewalk' };
+    }
+    for (const sx of [384, 448, 512, 624]) {
+      if (Math.abs(wx - sx) <= 2.3) return { tile: 1, kind: 'sidewalk' };
+    }
+    if (Math.abs(wx - 576) <= 3.5) return { tile: 1, kind: 'sidewalk' };
+  }
+  if (inSuburb) {
+    if (Math.abs(wy - 360) <= 2.3 || Math.abs(wy - 480) <= 2.3) return { tile: 1, kind: 'sidewalk' };
+    if (Math.abs(wx - 240) <= 2.3 || Math.abs(wx - 320) <= 2.3) return { tile: 1, kind: 'sidewalk' };
+  }
+
+  return { tile: 0, kind: 'none' };
 }
 
-function update(dt) {
-  if (!player.started || player.dead) return;
+export function getRoadType(wx, wy) {
+  return classifyRoad(wx, wy).tile;
+}
 
-  activeChunks = getActiveChunks(player.x, player.y, 1);
+export function isRoadTile(wx, wy) {
+  return classifyRoad(wx, wy).tile === 3;
+}
 
-  if (rescueEvent.radioPingTimer > 0) {
-    rescueEvent.radioPingTimer = Math.max(0, rescueEvent.radioPingTimer - dt);
+export function getZoneInfo(wx, wy) {
+  if (wx < 10 || wy < 10 || wx >= MAP_SIZE - 10 || wy >= MAP_SIZE - 10) {
+    return { ring: 4, name: 'Quarantine Wall', color: '#94a3b8' };
+  }
+  if (isInsideQuarryHub(wx, wy)) {
+    return { ring: 0, name: 'Rockmart Quarry Hub', color: '#4ade80' };
+  }
+  if (wx >= 360 && wx <= 630 && wy >= 290 && wy <= 540) {
+    return { ring: 1, name: 'Downtown Rockmart', color: '#38bdf8' };
+  }
+  if (wx >= 210 && wx <= 365 && wy >= 330 && wy <= 510) {
+    return { ring: 1, name: 'Oakridge Suburbs', color: '#38bdf8' };
   }
 
-  let sx = sticks.move.dx;
-  let sy = sticks.move.dy;
-  if (keys['w'] || keys['arrowup']) sy -= 1;
-  if (keys['s'] || keys['arrowdown']) sy += 1;
-  if (keys['a'] || keys['arrowleft']) sx -= 1;
-  if (keys['d'] || keys['arrowright']) sx += 1;
+  const distFromQuarry = Math.hypot(wx - QUARRY_X, wy - QUARRY_Y);
+  const warp = Math.sin(wx * 0.015) * 28 + Math.cos(wy * 0.015) * 28;
+  const effDist = distFromQuarry + warp;
 
-  const isMoving = Math.hypot(sx, sy) > 0.1;
-  const wantsSprint = !player.carryingCrate && (sprintHeld || keys['shift']);
-
-  if (wantsSprint && isMoving && player.stamina > 0 && !player.exhausted) {
-    player.isSprinting = true;
-    player.stamina = Math.max(0, player.stamina - 22 * dt);
-    if (player.stamina === 0) player.exhausted = true;
-  } else {
-    player.isSprinting = false;
-    const regenRate = isMoving ? 11 : 19;
-    player.stamina = Math.min(player.maxStamina, player.stamina + regenRate * dt);
-    if (player.stamina >= 25) player.exhausted = false;
+  if (effDist <= 385) {
+    return { ring: 2, name: 'Rural Valley & US-278', color: '#f59e0b' };
   }
+  return { ring: 3, name: 'Outer Pine Quarantine', color: '#ef4444' };
+}
 
-  const hungerDrain = player.isSprinting ? 0.95 : isMoving ? 0.45 : 0.2;
-  player.hunger = Math.max(0, player.hunger - hungerDrain * dt);
+const HOUSE_PALETTES = [
+  { name: 'Clapboard White', wallL: '#cbd5e1', wallR: '#94a3b8', roofL: '#475569', roofR: '#334155', trim: '#f8fafc' },
+  { name: 'Georgia Red Brick', wallL: '#991b1b', wallR: '#7f1d1d', roofL: '#3f3f46', roofR: '#27272a', trim: '#fef3c7' },
+  { name: 'Sage Craftsman', wallL: '#4d7c0f', wallR: '#3f6212', roofL: '#5c2d16', roofR: '#422006', trim: '#ecfccb' },
+  { name: 'Colonial Blue', wallL: '#1d4ed8', wallR: '#1e40af', roofL: '#334155', roofR: '#1e293b', trim: '#dbeafe' },
+  { name: 'Warm Sand Ranch', wallL: '#b45309', wallR: '#92400e', roofL: '#44403c', roofR: '#292524', trim: '#fef3c7' },
+  { name: 'Weathered Cabin', wallL: '#78350f', wallR: '#5c280b', roofL: '#166534', roofR: '#14532d', trim: '#fed7aa' }
+];
 
-  const nearCampfire = Math.hypot(quarryCampfire.x - player.x, quarryCampfire.y - player.y) < 3.2;
-  let nearAllyMedic = false;
-  for (const rp of remotePlayers.values()) {
-    if (rp.archetype === 'medic' && Math.hypot(rp.x - player.x, rp.y - player.y) < 4.5) {
-      nearAllyMedic = true;
-      break;
+const COMMERCIAL_PALETTES = [
+  { name: 'Downtown Brick', wallL: '#7f1d1d', wallR: '#651515', roofL: '#334155', roofR: '#1e293b', awning: '#dc2626' },
+  { name: 'Cinderblock Slate', wallL: '#475569', wallR: '#334155', roofL: '#1e293b', roofR: '#0f172a', awning: '#0284c7' },
+  { name: 'Stucco Cream', wallL: '#a16207', wallR: '#854d0e', roofL: '#3f3f46', roofR: '#27272a', awning: '#16a34a' },
+  { name: 'Steel Warehouse', wallL: '#374151', wallR: '#1f2937', roofL: '#4b5563', roofR: '#374151', awning: '#d97706' },
+  { name: 'Midtown Stone', wallL: '#57534e', wallR: '#44403c', roofL: '#292524', roofR: '#1c1917', awning: '#7c3aed' }
+];
+
+export function stampCompoundBuilding(chunk, config) {
+  const {
+    id,
+    name,
+    category,
+    rects,
+    doorSpecs,
+    seed,
+    defaultRevealed = false,
+    porchRect = null
+  } = config;
+
+  const cellSet = new Set();
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  for (const r of rects) {
+    for (let y = r.y1; y <= r.y2; y++) {
+      for (let x = r.x1; x <= r.x2; x++) {
+        cellSet.add(`${x},${y}`);
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
     }
   }
 
-  if (nearCampfire && player.hp < player.maxHp) {
-    const healRate = campUpgrades.medicTent ? 9.0 : 4.5;
-    player.hp = Math.min(player.maxHp, player.hp + healRate * dt);
-  } else if (
-    (player.archetype === 'medic' || nearAllyMedic) &&
-    player.hp < player.maxHp &&
-    player.hunger > 25
-  ) {
-    player.hp = Math.min(player.maxHp, player.hp + 1.8 * dt);
-  }
+  const palette =
+    category === 'commercial'
+      ? COMMERCIAL_PALETTES[Math.floor(seed * 97) % COMMERCIAL_PALETTES.length]
+      : HOUSE_PALETTES[Math.floor(seed * 131) % HOUSE_PALETTES.length];
 
-  if (player.hunger === 0) {
-    player.hp = Math.max(0, player.hp - 0.65 * dt);
-  } else if (player.hunger > 65 && player.hp < player.maxHp) {
-    player.hp = Math.min(player.maxHp, player.hp + 1.1 * dt);
-  }
+  const roofStyle =
+    category === 'commercial'
+      ? 'parapet'
+      : seed > 0.45
+      ? 'gable'
+      : 'hip';
 
-  if (isMoving) {
-    let speed = player.isSprinting ? player.sprintSpeed : player.walkSpeed;
-    if (player.carryingCrate) {
-      speed *= player.archetype === 'scavenger' ? 0.85 : 0.65;
-    }
-    if (getTileAt(Math.floor(player.x), Math.floor(player.y)) === 4) {
-      speed *= 0.75;
-    }
+  const wallTiles = [];
 
-    const rx = sx + sy * 2;
-    const ry = sy * 2 - sx;
-    const len = Math.hypot(rx, ry) || 1;
-    const rvx = (rx / len) * speed * dt;
-    const rvy = (ry / len) * speed * dt;
+  for (const key of cellSet) {
+    const [wx, wy] = key.split(',').map(Number);
+    const hasN = cellSet.has(`${wx},${wy - 1}`);
+    const hasS = cellSet.has(`${wx},${wy + 1}`);
+    const hasW = cellSet.has(`${wx - 1},${wy}`);
+    const hasE = cellSet.has(`${wx + 1},${wy}`);
 
-    let vx = rvx;
-    let vy = rvy;
-    if (camera.rotation === 1) {
-      vx = rvy;
-      vy = -rvx;
-    } else if (camera.rotation === 2) {
-      vx = -rvx;
-      vy = -rvy;
-    } else if (camera.rotation === 3) {
-      vx = -rvy;
-      vy = rvx;
-    }
+    const isPerimeter = !hasN || !hasS || !hasW || !hasE;
+    const doorSpec = doorSpecs.find((d) => d.x === wx && d.y === wy);
 
-    if (canWalkTo(player.x + vx, player.y, player.radius, activeChunks)) player.x += vx;
-    if (canWalkTo(player.x, player.y + vy, player.radius, activeChunks)) player.y += vy;
+    const lx = wx - chunk.cx * CHUNK_SIZE;
+    const ly = wy - chunk.cy * CHUNK_SIZE;
+    const inChunk = lx >= 0 && lx < CHUNK_SIZE && ly >= 0 && ly < CHUNK_SIZE;
 
-    if (Math.hypot(sticks.look.dx, sticks.look.dy) <= 0.15 && sticks.move.id !== null) {
-      const screenMove = worldToScreen(player.x + vx, player.y + vy, 0, 0);
-      const screenCurr = worldToScreen(player.x, player.y, 0, 0);
-      player.angle = Math.atan2(screenMove.y - screenCurr.y, screenMove.x - screenCurr.x);
-    }
-  }
+    if (doorSpec) {
+      if (inChunk) {
+        chunk.tiles[ly * CHUNK_SIZE + lx] = 1;
+        const doorKey = `${wx},${wy}`;
+        const isOpen = openedDoors.has(doorKey);
+        const maxHp = doorSpec.state === 'barricaded' ? 90 : 60;
+        chunk.doors.push({
+          key: doorKey,
+          x: wx,
+          y: wy,
+          buildingId: id,
+          state: isOpen ? 'open' : doorSpec.state,
+          hp: doorDamage.has(doorKey) ? doorDamage.get(doorKey) : maxHp,
+          maxHp
+        });
 
-  if (Math.hypot(sticks.look.dx, sticks.look.dy) > 0.15) {
-    player.angle = Math.atan2(sticks.look.dy, sticks.look.dx);
-  }
-
-  if (rescueEvent.active && rescueEvent.following) {
-    const distToPlayer = Math.hypot(player.x - rescueEvent.x, player.y - rescueEvent.y);
-    if (distToPlayer > 1.35) {
-      const ang = Math.atan2(player.y - rescueEvent.y, player.x - rescueEvent.x);
-      const npcSpeed = 4.6;
-      const nx = rescueEvent.x + Math.cos(ang) * npcSpeed * dt;
-      const ny = rescueEvent.y + Math.sin(ang) * npcSpeed * dt;
-      if (canWalkTo(nx, rescueEvent.y, 0.25, activeChunks)) rescueEvent.x = nx;
-      if (canWalkTo(rescueEvent.x, ny, 0.25, activeChunks)) rescueEvent.y = ny;
-    }
-
-    if (isInsideQuarryHub(rescueEvent.x, rescueEvent.y)) {
-      convoyGarage.specialists += 1;
-      const slotOffset = rescuedSpecialists.length * 1.8;
-      rescuedSpecialists.push({
-        name: rescueEvent.name,
-        x: 512 + (slotOffset % 8),
-        y: 605 + Math.floor(slotOffset / 8) * 1.8
+        const stepDir = doorSpec.dir || { dx: 0, dy: 1 };
+        for (let step = 1; step <= 4; step++) {
+          const sx = lx + stepDir.dx * step;
+          const sy = ly + stepDir.dy * step;
+          if (sx >= 0 && sx < CHUNK_SIZE && sy >= 0 && sy < CHUNK_SIZE) {
+            if (chunk.tiles[sy * CHUNK_SIZE + sx] === 0) {
+              chunk.tiles[sy * CHUNK_SIZE + sx] = category === 'rural' ? 5 : 1;
+            }
+          }
+        }
+      }
+    } else if (isPerimeter) {
+      if (inChunk) chunk.tiles[ly * CHUNK_SIZE + lx] = 2;
+      const isCorner = (!hasN && !hasW) || (!hasN && !hasE) || (!hasS && !hasW) || (!hasS && !hasE);
+      const hasWindow =
+        !isCorner &&
+        ((!hasS && (wx + wy) % 2 === 0) || (!hasE && (wx + wy) % 2 === 1));
+      const isBoarded = hasWindow && doorSpecs[0]?.state === 'barricaded';
+      wallTiles.push({
+        x: wx,
+        y: wy,
+        faceSouth: !hasS,
+        faceEast: !hasE,
+        hasWindow,
+        isBoarded
       });
-      broadcastWorldEvent({
-        kind: 'convoy',
-        points: convoyGarage.points,
-        specialists: convoyGarage.specialists
-      });
-      showToast(`🎉 ${rescueEvent.name} joined Rockmart Quarry! (+1 Convoy Delivery Bonus)`);
-      spawnNextRescueFlare();
+    } else {
+      if (inChunk) chunk.tiles[ly * CHUNK_SIZE + lx] = 1;
     }
   }
 
-  updateCombat(dt, player, activeChunks);
-  broadcastPlayerState(player);
-
-  if (player.hp <= 0) {
-    player.dead = true;
-    if (player.carryingCrate) dropHeavyCrate(player);
-    gameOverEl.querySelector('h1').style.color = '#ef4444';
-    gameOverEl.querySelector('h1').textContent = player.hunger === 0 ? 'YOU STARVED' : 'YOU DIED';
-    gameOverEl.querySelector('p').textContent =
-      player.hunger === 0
-        ? 'Eat stored rations from your backpack before fullness hits 0%.'
-        : 'Return to the Quarry Campfire to heal up between town runs.';
-    gameOverEl.querySelector('button').textContent = 'Respawn at Quarry';
-    gameOverEl.querySelector('button').onclick = () => location.reload();
-    gameOverEl.classList.add('show');
-    return;
-  }
-
-  const bagPoints = inventory
-    .filter((i) => i.type === 'convoy')
-    .reduce((sum, i) => sum + (i.value || 1), 0);
-  const cratePoints = player.carryingCrate ? player.carryingCrate.value || 4 : 0;
-  const totalCarried = bagPoints + cratePoints;
-
-  missionPctEl.textContent = `${convoyGarage.points} / ${convoyGarage.targetPoints} SUPPLIES`;
-  specCountEl.textContent = `${convoyGarage.specialists} NPCs`;
-  scrapPill.textContent = `⚙️ ${player.scrap || 0} SCRAP`;
-
-  if (convoyGarage.points >= convoyGarage.targetPoints && !convoyGarage.launched) {
-    missionSubEl.textContent = 'CONVOY READY! Return to Quarry Garage & tap LAUNCH CONVOY!';
-  } else if (rescueEvent.active && rescueEvent.following) {
-    missionSubEl.textContent = `Escorting ${rescueEvent.name} — lead them inside the Quarry gates!`;
-  } else if (rescueEvent.active && rescueEvent.radioPingTimer > 0) {
-    missionSubEl.textContent = `📻 ${rescueEvent.name}: ${rescueEvent.callout}`;
-  } else if (totalCarried > 0) {
-    missionSubEl.textContent = `Hauling +${totalCarried} supplies — return to Quarry Garage!`;
-  } else {
-    missionSubEl.textContent = 'Search Rockmart or loot Police Radios (568, 467) to find survivors';
-  }
-  missionFillEl.style.width = `${(convoyGarage.points / convoyGarage.targetPoints) * 100}%`;
-
-  canRescueNow =
-    rescueEvent.active &&
-    !rescueEvent.following &&
-    Math.hypot(rescueEvent.x - player.x, rescueEvent.y - player.y) < 1.8;
-
-  nearWorkbench =
-    Math.hypot(quarryWorkbench.x - player.x, quarryWorkbench.y - player.y) < 2.2;
-
-  if (canRescueNow) {
-    specialBtn.innerHTML = 'RESCUE<br/>NPC';
-    specialBtn.classList.add('visible');
-  } else if (nearWorkbench) {
-    specialBtn.innerHTML = 'CRAFT<br/>BENCH';
-    specialBtn.classList.add('visible');
-  } else if (player.carryingCrate) {
-    specialBtn.innerHTML = 'DROP<br/>CRATE';
-    specialBtn.classList.add('visible');
-  } else if (hasPoliceRadio() && rescueEvent.active && !rescueEvent.following) {
-    specialBtn.innerHTML = 'SCAN<br/>RADIO';
-    specialBtn.classList.add('visible');
-  } else {
-    specialBtn.classList.remove('visible');
-  }
-
-  nearbyDoor = null;
-  let bestDoorDist = 1.45;
-  for (const c of activeChunks) {
-    for (const d of c.doors) {
-      const dist = Math.hypot(d.x + 0.5 - player.x, d.y + 0.5 - player.y);
-      if (dist < bestDoorDist) {
-        bestDoorDist = dist;
-        nearbyDoor = d;
+  if (porchRect) {
+    for (let py = porchRect.y1; py <= porchRect.y2; py++) {
+      for (let px = porchRect.x1; px <= porchRect.x2; px++) {
+        const lx = px - chunk.cx * CHUNK_SIZE;
+        const ly = py - chunk.cy * CHUNK_SIZE;
+        if (lx >= 0 && lx < CHUNK_SIZE && ly >= 0 && ly < CHUNK_SIZE) {
+          if (chunk.tiles[ly * CHUNK_SIZE + lx] === 0) {
+            chunk.tiles[ly * CHUNK_SIZE + lx] = 1;
+          }
+        }
       }
     }
   }
 
-  if (nearbyDoor) {
-    let label = 'OPEN<br/>DOOR';
-    if (nearbyDoor.state === 'open') label = 'CLOSE<br/>DOOR';
-    else if (nearbyDoor.state === 'locked') {
-      label = hasLockpick() ? 'PICK<br/>LOCK' : 'BASH<br/>DOOR';
-    } else if (nearbyDoor.state === 'barricaded') {
-      label = 'SMASH<br/>BOARDS';
-    }
-    doorBtn.innerHTML = label;
-    doorBtn.classList.add('visible');
-  } else {
-    doorBtn.classList.remove('visible');
-  }
-
-  const distToGarage = Math.hypot(convoyGarage.x - player.x, convoyGarage.y - player.y);
-  if (distToGarage <= 2.4 && convoyGarage.points >= convoyGarage.targetPoints && !convoyGarage.launched) {
-    repairBtn.innerHTML = 'LAUNCH<br/>CONVOY';
-    repairBtn.classList.add('visible');
-  } else if (distToGarage <= 2.4 && totalCarried > 0) {
-    repairBtn.innerHTML = 'LOAD<br/>CONVOY';
-    repairBtn.classList.add('visible');
-  } else {
-    repairBtn.classList.remove('visible');
-  }
-
-  nearbyLoot = null;
-  let bestLootDist = 1.15;
-  for (const item of getNearbyLootList(activeChunks)) {
-    const d = Math.hypot(item.x - player.x, item.y - player.y);
-    if (d < bestLootDist) {
-      bestLootDist = d;
-      nearbyLoot = item;
+  const props = [];
+  const mainR = rects[0];
+  if (mainR && mainR.x2 - mainR.x1 >= 6 && mainR.y2 - mainR.y1 >= 6) {
+    if (category === 'commercial') {
+      props.push({ x: mainR.x1 + 2, y: mainR.y1 + 1, w: 3, d: 1, kind: 'counter' });
+      props.push({ x: mainR.x1 + 2, y: mainR.y1 + 4, w: 3, d: 1, kind: 'shelf' });
+      if (mainR.x2 - mainR.x1 >= 9) {
+        props.push({ x: mainR.x2 - 4, y: mainR.y1 + 4, w: 3, d: 1, kind: 'shelf' });
+      }
+    } else {
+      props.push({ x: mainR.x1 + 1, y: mainR.y1 + 1, w: 2, d: 2, kind: 'bed' });
+      props.push({ x: mainR.x2 - 3, y: mainR.y1 + 1, w: 3, d: 1, kind: 'counter' });
+      props.push({ x: mainR.x1 + 2, y: mainR.y2 - 3, w: 2, d: 1, kind: 'table' });
     }
   }
 
-  if (nearbyLoot) {
-    grabBtn.innerHTML = `GRAB<br/><span style="font-size:10px;font-weight:500;">${nearbyLoot.name}</span>`;
-    grabBtn.classList.add('visible');
-  } else {
-    grabBtn.classList.remove('visible');
+  chunk.buildings.push({
+    id,
+    name,
+    category,
+    rects,
+    x1: minX,
+    y1: minY,
+    x2: maxX,
+    y2: maxY,
+    cellSet,
+    wallTiles,
+    props,
+    palette,
+    roofStyle,
+    porchRect,
+    defaultRevealed
+  });
+}
+
+function buildHouseBlueprint(chunk, id, name, bx, by, bw, bh, doorState, seed, isRural = false) {
+  const shapeRoll = Math.floor(seed * 100) % 4;
+  const rects = [{ x1: bx, y1: by, x2: bx + bw, y2: by + bh }];
+
+  if (shapeRoll === 1 && bw >= 7) {
+    rects.push({
+      x1: bx + bw - 3,
+      y1: by + bh,
+      x2: bx + bw + 2,
+      y2: by + bh + 3
+    });
+  } else if (shapeRoll === 2 && bh >= 7) {
+    rects.push({
+      x1: bx - 3,
+      y1: by + 1,
+      x2: bx,
+      y2: by + bh - 2
+    });
+  } else if (shapeRoll === 3 && bw >= 8) {
+    rects.push({
+      x1: bx + 2,
+      y1: by - 2,
+      x2: bx + bw - 2,
+      y2: by
+    });
   }
 
-  const zone = getZoneInfo(player.x, player.y);
-  hpFill.style.width = `${(player.hp / player.maxHp) * 100}%`;
-  stamFill.style.width = `${player.stamina}%`;
-  stamFill.style.background = player.exhausted ? '#94a3b8' : '#38bdf8';
-  foodFill.style.width = `${player.hunger}%`;
-  foodFill.style.background = player.hunger < 25 ? '#ef4444' : '#f59e0b';
+  const doorX = bx + Math.floor(bw / 2);
+  const doorY = by + bh;
+  const porchRect =
+    shapeRoll !== 1
+      ? { x1: doorX - 2, y1: doorY + 1, x2: doorX + 2, y2: doorY + 2 }
+      : null;
 
-  hpVal.textContent = `${Math.ceil(player.hp)}/${player.maxHp}`;
-  stamVal.textContent = `${Math.ceil(player.stamina)}%`;
-  foodVal.textContent = `${Math.ceil(player.hunger)}%`;
-  coordsEl.style.color = zone.color;
-  coordsEl.textContent = `${zone.name} • ${Math.floor(player.x)},${Math.floor(player.y)}`;
+  stampCompoundBuilding(chunk, {
+    id,
+    name,
+    category: isRural ? 'rural' : 'house',
+    rects,
+    doorSpecs: [{ x: doorX, y: doorY, state: doorState, dir: { dx: 0, dy: 1 } }],
+    seed,
+    porchRect
+  });
+
+  return {
+    lootX: bx + Math.floor(bw / 2) + 0.5,
+    lootY: by + Math.floor(bh / 2) + 0.5,
+    zX: bx + 2.5,
+    zY: by + 2.5
+  };
 }
 
-let lastTime = performance.now();
-function loop(now) {
-  const dt = Math.min((now - lastTime) / 1000, 0.1);
-  lastTime = now;
+function buildCommercialBlueprint(chunk, id, name, bx, by, bw, bh, doorState, seed) {
+  const shapeRoll = Math.floor(seed * 100) % 3;
+  const rects = [{ x1: bx, y1: by, x2: bx + bw, y2: by + bh }];
 
-  update(dt);
-  renderFrame(ctx, player, activeChunks, nearbyLoot, nearbyDoor, getObjectiveTarget());
-  renderMinimap(mctx, player, activeChunks);
+  if (shapeRoll === 1 && bw >= 9) {
+    rects.push({
+      x1: bx + bw - 4,
+      y1: by + bh,
+      x2: bx + bw,
+      y2: by + bh + 4
+    });
+  } else if (shapeRoll === 2 && bw >= 10) {
+    rects.push({
+      x1: bx + 1,
+      y1: by - 3,
+      x2: bx + bw - 1,
+      y2: by
+    });
+  }
 
-  requestAnimationFrame(loop);
+  const doorX = bx + Math.floor(bw / 2);
+  const doorY = by + bh;
+
+  stampCompoundBuilding(chunk, {
+    id,
+    name,
+    category: 'commercial',
+    rects,
+    doorSpecs: [{ x: doorX, y: doorY, state: doorState, dir: { dx: 0, dy: 1 } }],
+    seed
+  });
+
+  return {
+    lootX: bx + Math.floor(bw / 2) + 0.5,
+    lootY: by + Math.floor(bh / 2) + 0.5,
+    zX: bx + 2.5,
+    zY: by + 2.5
+  };
 }
-requestAnimationFrame(loop);
+
+function generateChunk(cx, cy) {
+  const tiles = new Uint8Array(CHUNK_SIZE * CHUNK_SIZE);
+  const roadKinds = new Array(CHUNK_SIZE * CHUNK_SIZE).fill('none');
+  const chunk = {
+    cx,
+    cy,
+    tiles,
+    roadKinds,
+    buildings: [],
+    doors: [],
+    loot: [],
+    zombies: []
+  };
+
+  const baseX = cx * CHUNK_SIZE;
+  const baseY = cy * CHUNK_SIZE;
+
+  const usedOsmAtlas = atlasState.loaded
+    ? applyAtlasToChunk(chunk, baseX, baseY, CHUNK_SIZE, stampCompoundBuilding)
+    : false;
+
+  if (!usedOsmAtlas) {
+    for (let ly = 0; ly < CHUNK_SIZE; ly++) {
+      const wy = baseY + ly;
+      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+        const wx = baseX + lx;
+        const idx = ly * CHUNK_SIZE + lx;
+
+        if (wx < 10 || wy < 10 || wx >= MAP_SIZE - 10 || wy >= MAP_SIZE - 10) {
+          tiles[idx] = 2;
+          continue;
+        }
+
+        const roadInfo = classifyRoad(wx, wy);
+        if (roadInfo.kind !== 'none') {
+          tiles[idx] = roadInfo.tile;
+          roadKinds[idx] = roadInfo.kind;
+          continue;
+        }
+
+        if (isQuarryPerimeter(wx, wy)) {
+          tiles[idx] = 2;
+          continue;
+        }
+
+        if (isInsideQuarryHub(wx, wy)) {
+          tiles[idx] = 1;
+          continue;
+        }
+
+        if (isCreekTile(wx, wy)) {
+          tiles[idx] = 4;
+          continue;
+        }
+
+        tiles[idx] = 0;
+      }
+    }
+  } else {
+    for (let ly = 0; ly < CHUNK_SIZE; ly++) {
+      const wy = baseY + ly;
+      for (let lx = 0; lx < CHUNK_SIZE; lx++) {
+        const wx = baseX + lx;
+        const idx = ly * CHUNK_SIZE + lx;
+        if (isQuarryPerimeter(wx, wy) && tiles[idx] !== 3) {
+          tiles[idx] = 2;
+        } else if (isInsideQuarryHub(wx, wy) && tiles[idx] !== 3) {
+          tiles[idx] = 1;
+        }
+      }
+    }
+
+    const midX = baseX + 16;
+    const midY = baseY + 16;
+    const zone = getZoneInfo(midX, midY);
+    chunk.buildings.forEach((b, idx) => {
+      const lx = Math.floor((b.x1 + b.x2) / 2) + 0.5;
+      const ly = Math.floor((b.y1 + b.y2) / 2) + 0.5;
+      const crateRoll = hash2d(cx + idx * 19, cy + 59);
+      const supplyItem =
+        zone.ring === 3
+          ? { name: 'Prototype Convoy Core', type: 'heavy', value: 6, color: '#e879f9' }
+          : crateRoll > 0.72
+          ? { name: 'Heavy Supply Crate', type: 'heavy', value: 4, color: '#fb923c' }
+          : { name: 'Scrap Plating', type: 'convoy', value: 1, color: '#22d3ee' };
+      addChunkLoot(chunk, `osm-loot-${cx}-${cy}-${idx}`, lx, ly, supplyItem);
+      if (zone.ring > 0) {
+        addChunkZombie(chunk, `osm-z-${cx}-${cy}-${idx}`, b.x1 + 2.5, b.y1 + 2.5, zone.ring, false);
+      }
+    });
+  }
+
+  // 1. Rockmart Slate Quarry Safe Hub Landmarks
+  if (cx >= 14 && cx <= 18 && cy >= 17 && cy <= 20) {
+    stampCompoundBuilding(chunk, {
+      id: 'quarry-garage',
+      name: 'Convoy Garage',
+      category: 'commercial',
+      rects: [{ x1: 504, y1: 594, x2: 514, y2: 603 }],
+      doorSpecs: [
+        { x: 509, y: 603, state: 'unlocked', dir: { dx: 0, dy: 1 } },
+        { x: 514, y: 598, state: 'unlocked', dir: { dx: 1, dy: 0 } }
+      ],
+      seed: 0.42,
+      defaultRevealed: true
+    });
+
+    stampCompoundBuilding(chunk, {
+      id: 'quarry-depot',
+      name: 'Quarry Depot',
+      category: 'commercial',
+      rects: [{ x1: 526, y1: 594, x2: 536, y2: 603 }],
+      doorSpecs: [{ x: 526, y: 598, state: 'unlocked', dir: { dx: -1, dy: 0 } }],
+      seed: 0.77,
+      defaultRevealed: true
+    });
+
+    if (cx === 16 && cy === 19) {
+      addChunkLoot(chunk, 'q-crowbar', 516.5, 608.5, {
+        name: 'Crowbar',
+        type: 'weapon',
+        weaponId: 'crowbar',
+        color: '#38bdf8'
+      });
+      addChunkLoot(chunk, 'q-beans', 517.5, 607.5, {
+        name: 'Canned Beans',
+        type: 'food',
+        hunger: 35,
+        hp: 5,
+        color: '#f97316'
+      });
+      addChunkLoot(chunk, 'q-pick', 515.5, 609.5, {
+        name: 'Lockpick Set',
+        type: 'tool',
+        toolId: 'lockpick',
+        color: '#fbbf24'
+      });
+    }
+    if (cx === 16 && cy === 18) {
+      addChunkLoot(chunk, 'q-med', 530.5, 598.5, {
+        name: 'First Aid Kit',
+        type: 'med',
+        hunger: 0,
+        hp: 65,
+        color: '#f8fafc'
+      });
+    }
+  }
+
+  // 2. Rockmart Police Precinct
+  if (cx === 17 && cy === 14) {
+    stampCompoundBuilding(chunk, {
+      id: 'rockmart-pd',
+      name: 'Rockmart Police Precinct',
+      category: 'commercial',
+      rects: [
+        { x1: 560, y1: 460, x2: 572, y2: 472 },
+        { x1: 568, y1: 472, x2: 572, y2: 476 }
+      ],
+      doorSpecs: [
+        { x: 565, y: 472, state: 'locked', dir: { dx: 0, dy: 1 } },
+        { x: 560, y: 466, state: 'barricaded', dir: { dx: -1, dy: 0 } }
+      ],
+      seed: 0.22
+    });
+
+    addChunkLoot(chunk, 'pd-radio-1', 564.5, 463.5, {
+      name: 'Police Radio',
+      type: 'radio',
+      charges: 3,
+      color: '#38bdf8'
+    });
+    addChunkLoot(chunk, 'pd-radio-2', 569.5, 463.5, {
+      name: 'Police Radio',
+      type: 'radio',
+      charges: 3,
+      color: '#38bdf8'
+    });
+    addChunkLoot(chunk, 'pd-pistol', 569.5, 468.5, {
+      name: '9mm Pistol',
+      type: 'weapon',
+      weaponId: 'pistol',
+      color: '#94a3b8'
+    });
+
+    addChunkZombie(chunk, 'z-pd-1', 563.5, 468.5, 2, false);
+    addChunkZombie(chunk, 'z-pd-2', 569.5, 465.5, 2, false);
+    return chunk;
+  }
+
+  if (usedOsmAtlas) {
+    const midX = baseX + 16;
+    const midY = baseY + 16;
+    const zone = getZoneInfo(midX, midY);
+    if (zone.ring > 0 && zone.ring < 4) {
+      for (let i = 0; i < 2; i++) {
+        const zx = baseX + 4 + Math.floor(hash2d(cx + i * 13, cy + 5) * 24) + 0.5;
+        const zy = baseY + 4 + Math.floor(hash2d(cx + 7, cy + i * 19) * 24) + 0.5;
+        const tx = Math.floor(zx - baseX);
+        const ty = Math.floor(zy - baseY);
+        if (tiles[ty * CHUNK_SIZE + tx] !== 2 && !isInsideQuarryHub(zx, zy)) {
+          addChunkZombie(chunk, `z-osm-out-${cx}-${cy}-${i}`, zx, zy, zone.ring, false);
+        }
+      }
+    }
+    return chunk;
+  }
+
+  // Fallback procedural buildings when OSM atlas isn't active
+  const midX = baseX + 16;
+  const midY = baseY + 16;
+  const zone = getZoneInfo(midX, midY);
+  if (zone.ring === 0 || zone.ring === 4) return chunk;
+
+  const isDowntownBlock = midX >= 360 && midX <= 630 && midY >= 290 && midY <= 540;
+  const isSuburbBlock = midX >= 210 && midX <= 365 && midY >= 330 && midY <= 510;
+  const isRuralArea = !isDowntownBlock && !isSuburbBlock;
+
+  const seed = hash2d(cx, cy);
+  const spawnThreshold = isDowntownBlock ? 0.15 : isSuburbBlock ? 0.2 : 0.78;
+
+  if (seed > spawnThreshold) {
+    let targetRoadY = null;
+    for (let y = baseY + 4; y <= baseY + 28; y++) {
+      if (getRoadType(baseX + 16, y) === 3) {
+        targetRoadY = y;
+        break;
+      }
+    }
+
+    const lots = [];
+    if (targetRoadY !== null && !isRuralArea) {
+      const by = targetRoadY - 11;
+      if (by >= baseY + 2) {
+        lots.push({ bx: baseX + 4, by, bw: 9, bh: 8, s: hash2d(cx * 5, cy * 3) });
+        if (hash2d(cx + 9, cy + 2) > 0.35) {
+          lots.push({ bx: baseX + 17, by, bw: 9, bh: 8, s: hash2d(cx * 11, cy * 7) });
+        }
+      }
+    } else if (isRuralArea) {
+      const bx = baseX + 8 + Math.floor(hash2d(cx + 3, cy) * 8);
+      const by = baseY + 8 + Math.floor(hash2d(cx, cy + 5) * 8);
+      let ok = true;
+      for (let yy = by - 4; yy <= by + 13; yy += 2) {
+        for (let xx = bx - 4; xx <= bx + 13; xx += 2) {
+          if (isCreekTile(xx, yy) || isInsideQuarryHub(xx, yy) || getRoadType(xx, yy) !== 0) {
+            ok = false;
+          }
+        }
+      }
+      if (ok) {
+        lots.push({ bx, by, bw: 9, bh: 8, s: hash2d(cx * 17, cy * 19), rural: true });
+      }
+    }
+
+    lots.forEach((lot, idx) => {
+      for (let xx = lot.bx - 1; xx <= lot.bx + lot.bw + 1; xx++) {
+        if (getRoadType(xx, lot.by + 2) === 3) return;
+      }
+
+      const isCommercial = isDowntownBlock && lot.s > 0.45 && !lot.rural;
+      const doorRoll = hash2d(cx + idx * 17, cy + 29);
+      const doorState =
+        zone.ring === 1
+          ? doorRoll > 0.62
+            ? 'locked'
+            : 'unlocked'
+          : zone.ring === 2
+          ? doorRoll > 0.52
+            ? 'barricaded'
+            : 'locked'
+          : 'barricaded';
+
+      const commNames = [
+        'Corner Market',
+        'Piedmont Pharmacy',
+        'Elm St Cafe',
+        'Auto Parts Shop',
+        'Rockmart Laundromat',
+        'Feed & Seed Store'
+      ];
+      const houseNames = [
+        'Craftsman Home',
+        'Brick Ranch',
+        'Oakridge Bungalow',
+        'Family Residence',
+        'Porch Cottage',
+        'Split-Level House'
+      ];
+      const ruralNames = [
+        'Valley Farmhouse',
+        'Timber Barn',
+        'Pine Woods Cabin',
+        'Creekside Homestead'
+      ];
+
+      const namePool = lot.rural
+        ? ruralNames
+        : isCommercial
+        ? commNames
+        : houseNames;
+      const bName = namePool[Math.floor(hash2d(cx * 3 + idx, cy * 7) * namePool.length)];
+      const bId = `b-${cx}-${cy}-${idx}`;
+
+      const spot = isCommercial
+        ? buildCommercialBlueprint(chunk, bId, bName, lot.bx, lot.by, lot.bw, lot.bh, doorState, lot.s)
+        : buildHouseBlueprint(chunk, bId, bName, lot.bx, lot.by, lot.bw, lot.bh, doorState, lot.s, lot.rural);
+
+      if (idx === 0) {
+        const crateRoll = hash2d(cx + 51, cy + 59);
+        const supplyItem =
+          zone.ring === 3
+            ? { name: 'Prototype Convoy Core', type: 'heavy', value: 6, color: '#e879f9' }
+            : crateRoll > 0.68
+            ? { name: 'Heavy Supply Crate', type: 'heavy', value: 4, color: '#fb923c' }
+            : zone.ring === 1
+            ? { name: 'Scrap Plating', type: 'convoy', value: 1, color: '#22d3ee' }
+            : { name: 'Tanker Fuel Drum', type: 'convoy', value: 2, color: '#f59e0b' };
+
+        addChunkLoot(chunk, `loot-main-${cx}-${cy}`, spot.lootX, spot.lootY, supplyItem);
+      } else {
+        const secRoll = hash2d(cx + 41, cy + 43);
+        const secItem =
+          secRoll < 0.25
+            ? { name: 'Lockpick Set', type: 'tool', toolId: 'lockpick', color: '#fbbf24' }
+            : secRoll < 0.65
+            ? { name: 'MRE Pack', type: 'food', hunger: 55, hp: 10, color: '#eab308' }
+            : { name: 'Bandage', type: 'med', hunger: 0, hp: 40, color: '#f8fafc' };
+        addChunkLoot(chunk, `loot-sec-${cx}-${cy}-${idx}`, spot.lootX, spot.lootY, secItem);
+      }
+
+      addChunkZombie(
+        chunk,
+        `z-in-${cx}-${cy}-${idx}`,
+        spot.zX,
+        spot.zY,
+        zone.ring,
+        zone.ring === 3 && idx === 0
+      );
+    });
+  }
+
+  const outdoorCount = isRuralArea ? 1 : zone.ring === 1 ? 2 : 3;
+  for (let i = 0; i < outdoorCount; i++) {
+    const zx = baseX + 3 + Math.floor(hash2d(cx + i * 13, cy + 5) * 26) + 0.5;
+    const zy = baseY + 3 + Math.floor(hash2d(cx + 7, cy + i * 19) * 26) + 0.5;
+    const tx = Math.floor(zx - baseX);
+    const ty = Math.floor(zy - baseY);
+    if (tiles[ty * CHUNK_SIZE + tx] !== 2 && !isInsideQuarryHub(zx, zy)) {
+      addChunkZombie(chunk, `z-out-${cx}-${cy}-${i}`, zx, zy, zone.ring, false);
+    }
+  }
+
+  return chunk;
+}
+
+function addChunkLoot(chunk, id, x, y, props) {
+  if (lootedIds.has(id)) return;
+  chunk.loot.push({ id, x, y, ...props });
+}
+
+function addChunkZombie(chunk, id, x, y, ring, isBoss = false) {
+  if (killedZombieIds.has(id)) return;
+  const tier = isBoss
+    ? { kind: 'juggernaut', hp: 450, speed: 2.0, dmg: 28, color: '#a21caf', scale: 1.55, isBoss: true }
+    : ring === 1
+    ? { kind: 'walker', hp: 95, speed: 1.85, dmg: 11, color: '#4d7c0f', scale: 1, isBoss: false }
+    : ring === 2
+    ? { kind: 'sprinter', hp: 120, speed: 2.55, dmg: 15, color: '#ca8a04', scale: 1.05, isBoss: false }
+    : { kind: 'brute', hp: 210, speed: 1.75, dmg: 22, color: '#991b1b', scale: 1.25, isBoss: false };
+
+  const ang = hash2d(Math.floor(x * 7), Math.floor(y * 11)) * Math.PI * 2;
+  chunk.zombies.push({
+    id,
+    x,
+    y,
+    hp: tier.hp,
+    maxHp: tier.hp,
+    speed: tier.speed,
+    dmg: tier.dmg,
+    color: tier.color,
+    scale: tier.scale,
+    kind: tier.kind,
+    isBoss: tier.isBoss,
+    attackCd: 0,
+    hitFlash: 0,
+    lungeTimer: 0,
+    facing: ang,
+    walkPhase: ang,
+    wanderAng: ang,
+    turnTimer: 1.2,
+    aggro: false
+  });
+}
+
+export function getChunk(cx, cy) {
+  if (cx < 0 || cy < 0 || cx >= WORLD_CHUNKS || cy >= WORLD_CHUNKS) return null;
+  const key = `${cx},${cy}`;
+  if (!chunkCache.has(key)) {
+    if (chunkCache.size > 64) {
+      const oldest = chunkCache.keys().next().value;
+      chunkCache.delete(oldest);
+    }
+    chunkCache.set(key, generateChunk(cx, cy));
+  }
+  return chunkCache.get(key);
+}
+
+export function getTileAt(tx, ty) {
+  if (tx < 0 || ty < 0 || tx >= MAP_SIZE || ty >= MAP_SIZE) return 2;
+  const cx = Math.floor(tx / CHUNK_SIZE);
+  const cy = Math.floor(ty / CHUNK_SIZE);
+  const chunk = getChunk(cx, cy);
+  if (!chunk) return 2;
+  const lx = tx - cx * CHUNK_SIZE;
+  const ly = ty - cy * CHUNK_SIZE;
+  return chunk.tiles[ly * CHUNK_SIZE + lx];
+}
+
+export function getRoadKindAt(tx, ty) {
+  if (tx < 0 || ty < 0 || tx >= MAP_SIZE || ty >= MAP_SIZE) return 'none';
+  const cx = Math.floor(tx / CHUNK_SIZE);
+  const cy = Math.floor(ty / CHUNK_SIZE);
+  const chunk = getChunk(cx, cy);
+  if (!chunk) return 'none';
+  const lx = tx - cx * CHUNK_SIZE;
+  const ly = ty - cy * CHUNK_SIZE;
+  return chunk.roadKinds[ly * CHUNK_SIZE + lx];
+}
+
+export function getActiveChunks(wx, wy, radiusChunks = 1) {
+  const pcx = Math.floor(wx / CHUNK_SIZE);
+  const pcy = Math.floor(wy / CHUNK_SIZE);
+  const list = [];
+  for (let dy = -radiusChunks; dy <= radiusChunks; dy++) {
+    for (let dx = -radiusChunks; dx <= radiusChunks; dx++) {
+      const c = getChunk(pcx + dx, pcy + dy);
+      if (c) list.push(c);
+    }
+  }
+  return list;
+}
