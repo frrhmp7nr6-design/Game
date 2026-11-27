@@ -14,7 +14,7 @@
   <div id="archetype-modal">
     <div class="modal-card">
       <h1>SELECT SURVIVOR ARCHETYPE</h1>
-      <p>Deploy into the 128×128 Quarry Camp Safe Hub and supply the Iron Convoy across a 1024×1024 world.</p>
+      <p>Deploy into the 128×128 Quarry Camp Safe Hub, craft gear, defeat Ring 3 Juggernauts, and launch the Iron Convoy.</p>
       <div class="archetype-grid">
         <button class="arch-btn" data-arch="bruiser">
           <span class="arch-title">🛡️ THE BRUISER</span>
@@ -33,6 +33,18 @@
           <span class="arch-sub">95 HP • Starts with 9mm Pistol • +25% Ranged Reach &amp; Crit</span>
         </button>
       </div>
+    </div>
+  </div>
+
+  <!-- Quarry Crafting Workbench & Camp Professions Modal -->
+  <div id="craft-modal">
+    <div class="modal-card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+        <h1 style="margin:0;">⚒️ QUARRY WORKBENCH &amp; CAMP</h1>
+        <button id="close-craft-btn" class="hud-btn">✕ CLOSE</button>
+      </div>
+      <p id="craft-resources">Scrap Credits: 0 • Rescued Specialists: 0</p>
+      <div class="archetype-grid" id="craft-grid"></div>
     </div>
   </div>
 
@@ -65,6 +77,7 @@
 
     <div class="top-right">
       <div class="pill" id="net-status">⚪ SOLO MODE</div>
+      <div class="pill" id="scrap-pill" style="color:#fbbf24;">⚙️ 2 SCRAP</div>
       <button id="rotate-btn" class="hud-btn" title="Rotate Camera 90°">🔄 CAM</button>
       <div class="pill" id="coords">Quarry Hub • 510, 510</div>
       <button id="bag-toggle" class="hud-btn">🎒 BAG (<span id="bag-count">0/8</span>)</button>
