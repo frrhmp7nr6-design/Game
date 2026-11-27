@@ -1,21 +1,29 @@
 const ATLAS_MAP_SIZE = 1024;
 
-// Rockmart, GA bounding box (1024 tiles x ~2.5m = ~2.56 km)
+// Tightened Rockmart, GA bounding box centered on Rockmart Slate Corp Quarry, Downtown & Euharlee Creek
+// (~1.85 km x 2.0 km -> ~1.8m per tile so real houses & streets match player scale)
 const DEFAULT_BOUNDS = {
-  minLat: 33.990,
-  maxLat: 34.025,
-  minLon: -85.065,
-  maxLon: -85.030
+  minLat: 33.9935,
+  maxLat: 34.0115,
+  minLon: -85.0575,
+  maxLon: -85.0375
 };
 
 const DB_NAME = 'isowalk-osm-atlas';
 const STORE_NAME = 'sectors';
-const SECTOR_KEY = 'rockmart-ga-v1';
+const SECTOR_KEY = 'rockmart-ga-v2';
+
+const OVERPASS_MIRRORS = [
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
+];
 
 let atlasBounds = { ...DEFAULT_BOUNDS };
 
 export const atlasState = {
   loaded: false,
+  status: 'loading',
   source: 'procedural',
   features: [],
   quarryPolygons: []
@@ -65,7 +73,7 @@ async function writeCachedSector(key, data) {
       tx.onerror = () => resolve();
     });
   } catch {
-    // Ignore storage quota issues on private browsing
+    // Ignore storage quota errors
   }
 }
 
@@ -109,7 +117,10 @@ function parseOsmElementsToGeoJSON(elements) {
 }
 
 function ingestFeatureCollection(gj) {
+  atlasState.features = [];
+  atlasState.quarryPolygons = [];
   const seenIds = new Set();
+
   for (const f of gj.features || []) {
     if (f.id && seenIds.has(f.id)) continue;
     if (f.id) seenIds.add(f.id);
@@ -151,10 +162,10 @@ function ingestFeatureCollection(gj) {
   }
 }
 
-async function fetchAndCacheOverpassSector(bounds) {
+async function fetchWithMirrors(bounds) {
   const { minLat, minLon, maxLat, maxLon } = bounds;
   const query = `
-    [out:json][timeout:45];
+    [out:json][timeout:35];
     (
       way["highway"](${minLat},${minLon},${maxLat},${maxLon});
       way["building"](${minLat},${minLon},${maxLat},${maxLon});
@@ -167,66 +178,92 @@ async function fetchAndCacheOverpassSector(bounds) {
     out skel qt;
   `;
 
-  const resp = await fetch('https://overpass-api.de/api/interpreter', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-    body: `data=${encodeURIComponent(query)}`
-  });
-  if (!resp.ok) throw new Error(`Overpass HTTP ${resp.status}`);
-  const raw = await resp.json();
-  const gj = parseOsmElementsToGeoJSON(raw.elements || []);
-  await writeCachedSector(SECTOR_KEY, { bounds, geojson: gj, savedAt: Date.now() });
-  return gj;
+  let lastErr = null;
+  for (const url of OVERPASS_MIRRORS) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 18000);
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+        body: `data=${encodeURIComponent(query)}`,
+        signal: controller.signal
+      });
+      clearTimeout(timer);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const raw = await resp.json();
+      const gj = parseOsmElementsToGeoJSON(raw.elements || []);
+      if (gj.features.length > 0) {
+        await writeCachedSector(SECTOR_KEY, { bounds, geojson: gj, savedAt: Date.now() });
+        return gj;
+      }
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error('All Overpass mirrors busy');
 }
 
-export async function initAtlas(onReady) {
-  // 1. Check static repo manifest first (if pre-sliced files exist)
-  try {
-    const res = await fetch('./atlas/manifest.json');
-    if (res.ok) {
-      const manifest = await res.json();
-      if (manifest.origin) atlasBounds = { ...atlasBounds, ...manifest.origin };
-      for (const tile of manifest.tiles || []) {
-        const tRes = await fetch(`./atlas/${tile.file}`);
-        if (tRes.ok) ingestFeatureCollection(await tRes.json());
+export async function initAtlas(onReady, forceRefresh = false) {
+  atlasState.status = 'loading';
+
+  if (!forceRefresh) {
+    // 1. Check static repo manifest if present
+    try {
+      const res = await fetch('./atlas/manifest.json');
+      if (res.ok) {
+        const manifest = await res.json();
+        if (manifest.origin) atlasBounds = { ...atlasBounds, ...manifest.origin };
+        const merged = [];
+        for (const tile of manifest.tiles || []) {
+          const tRes = await fetch(`./atlas/${tile.file}`);
+          if (tRes.ok) {
+            const gj = await tRes.json();
+            merged.push(...(gj.features || []));
+          }
+        }
+        if (merged.length > 0) {
+          ingestFeatureCollection({ features: merged });
+          atlasState.loaded = true;
+          atlasState.status = 'ready';
+          atlasState.source = 'static-atlas';
+          if (onReady) onReady(atlasState);
+          return true;
+        }
       }
-      if (atlasState.features.length > 0) {
-        atlasState.loaded = true;
-        atlasState.source = 'static-atlas';
-        if (onReady) onReady(atlasState);
-        return true;
-      }
+    } catch {
+      // Continue to IndexedDB
     }
-  } catch {
-    // Fall through to IndexedDB / Overpass auto-seed
-  }
 
-  // 2. Check iPad IndexedDB local cache
-  const cached = await readCachedSector(SECTOR_KEY);
-  if (cached && cached.geojson && cached.geojson.features?.length > 0) {
-    atlasBounds = { ...DEFAULT_BOUNDS, ...(cached.bounds || {}) };
-    ingestFeatureCollection(cached.geojson);
-    atlasState.loaded = true;
-    atlasState.source = 'indexeddb-cache';
-    if (onReady) onReady(atlasState);
-    return true;
-  }
-
-  // 3. Auto-fetch Rockmart, GA OSM square once and save permanently in IndexedDB
-  try {
-    const gj = await fetchAndCacheOverpassSector(DEFAULT_BOUNDS);
-    if (gj.features.length > 0) {
-      ingestFeatureCollection(gj);
+    // 2. Check IndexedDB cache
+    const cached = await readCachedSector(SECTOR_KEY);
+    if (cached && cached.geojson && cached.geojson.features?.length > 0) {
+      atlasBounds = { ...DEFAULT_BOUNDS, ...(cached.bounds || {}) };
+      ingestFeatureCollection(cached.geojson);
       atlasState.loaded = true;
-      atlasState.source = 'osm-live-seeded';
+      atlasState.status = 'ready';
+      atlasState.source = 'indexeddb';
       if (onReady) onReady(atlasState);
       return true;
     }
-  } catch {
-    // Offline or Overpass busy: seamlessly keep procedural Rockmart map
   }
 
-  return false;
+  // 3. Fetch live Rockmart, GA OSM geometry from Overpass mirrors & cache in IndexedDB
+  try {
+    atlasBounds = { ...DEFAULT_BOUNDS };
+    const gj = await fetchWithMirrors(DEFAULT_BOUNDS);
+    ingestFeatureCollection(gj);
+    atlasState.loaded = true;
+    atlasState.status = 'ready';
+    atlasState.source = 'osm-live';
+    if (onReady) onReady(atlasState);
+    return true;
+  } catch (err) {
+    atlasState.status = 'fallback';
+    atlasState.error = err?.message || 'Offline';
+    if (onReady) onReady(atlasState);
+    return false;
+  }
 }
 
 export function pointInPolygon(px, py, pts) {
@@ -257,7 +294,7 @@ export function applyAtlasToChunk(chunk, baseX, baseY, CHUNK_SIZE, stampCompound
   const maxY = baseY + CHUNK_SIZE;
 
   const nearby = atlasState.features.filter(
-    (f) => f.maxX >= baseX - 6 && f.minX <= maxX + 6 && f.maxY >= baseY - 6 && f.minY <= maxY + 6
+    (f) => f.maxX >= baseX - 8 && f.minX <= maxX + 8 && f.maxY >= baseY - 8 && f.minY <= maxY + 8
   );
 
   for (let ly = 0; ly < CHUNK_SIZE; ly++) {
@@ -307,35 +344,35 @@ export function applyAtlasToChunk(chunk, baseX, baseY, CHUNK_SIZE, stampCompound
             if (d < minD) minD = d;
           }
 
-          if (ww && minD <= 2.4) {
+          if (ww && minD <= 2.8) {
             tile = 4;
           } else if (hw) {
             if (hw === 'motorway' || hw === 'trunk') {
-              if (minD <= 0.55) {
+              if (minD <= 0.6) {
                 tile = 2;
                 roadKind = 'median';
-              } else if (minD <= 3.4) {
+              } else if (minD <= 3.6) {
                 tile = 3;
                 roadKind = 'freeway';
               }
             } else if (hw === 'primary' || hw === 'secondary') {
-              if (minD <= 2.3) {
+              if (minD <= 2.6) {
                 tile = 3;
                 roadKind = 'highway';
-              } else if (minD <= 3.2 && tile === 0) {
+              } else if (minD <= 3.6 && tile === 0) {
                 tile = 1;
                 roadKind = 'sidewalk';
               }
             } else if (hw === 'residential' || hw === 'tertiary' || hw === 'unclassified') {
-              if (minD <= 1.6) {
+              if (minD <= 1.8) {
                 tile = 3;
                 roadKind = 'street';
-              } else if (minD <= 2.4 && tile === 0) {
+              } else if (minD <= 2.7 && tile === 0) {
                 tile = 1;
                 roadKind = 'sidewalk';
               }
             } else if (hw === 'track' || hw === 'service' || hw === 'path') {
-              if (minD <= 1.2 && tile === 0) {
+              if (minD <= 1.3 && tile === 0) {
                 tile = 5;
                 roadKind = 'dirt';
               }
