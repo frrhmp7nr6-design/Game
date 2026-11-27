@@ -17,8 +17,7 @@ import {
   isBuildingRevealed,
   getNearbyLootList
 } from './map.js';
-import { getTileAt, getRoadKindAt } from './chunks.js';
-import { atlasState } from './atlas.js';
+import { getTileAt, getRoadKindAt, getRiverCenterX } from './chunks.js';
 import { sticks, MAX_STICK_R } from './input.js';
 import { getActiveZombies, fxList, WEAPONS } from './combat.js';
 import { remotePlayers } from './net.js';
@@ -352,56 +351,8 @@ function drawRoofCap(ctx, building, camX, camY) {
     roofR: '#1e293b'
   };
 
-  const wallH = 42;
-
-  // For true angled OSM polygon footprints, draw a pitched/parapet roof matching the exact polygon vertices
-  if (building.polygonPts && building.polygonPts.length >= 3) {
-    const pts = building.polygonPts;
-    const screenPts = pts.map((pt) => worldToScreen(pt.x, pt.y, camX, camY));
-    const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
-    const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
-    const peak = worldToScreen(cx, cy, camX, camY);
-    const peakH = building.category === 'commercial' ? wallH + 6 : wallH + 16;
-
-    // Roof base deck
-    ctx.fillStyle = pal.roofR;
-    ctx.beginPath();
-    screenPts.forEach((sp, i) => {
-      if (i === 0) ctx.moveTo(sp.x, sp.y - wallH);
-      else ctx.lineTo(sp.x, sp.y - wallH);
-    });
-    ctx.closePath();
-    ctx.fill();
-    ctx.strokeStyle = pal.wallL;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    // Pitched hip facets from each polygon edge up to the centroid peak
-    if (building.category !== 'commercial') {
-      for (let i = 0; i < screenPts.length; i++) {
-        const a = screenPts[i];
-        const b = screenPts[(i + 1) % screenPts.length];
-        ctx.fillStyle = i % 2 === 0 ? pal.roofL : pal.roofR;
-        ctx.beginPath();
-        ctx.moveTo(a.x, a.y - wallH);
-        ctx.lineTo(b.x, b.y - wallH);
-        ctx.lineTo(peak.x, peak.y - peakH);
-        ctx.closePath();
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(15, 23, 42, 0.35)';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-      }
-    }
-
-    ctx.font = 'bold 11px -apple-system, sans-serif';
-    ctx.fillStyle = building.id === 'rockmart-pd' ? '#38bdf8' : 'rgba(241, 245, 249, 0.94)';
-    ctx.textAlign = 'center';
-    ctx.fillText(building.name.toUpperCase(), peak.x, peak.y - peakH - 10);
-    return;
-  }
-
   const rects = building.rects || [{ x1: building.x1, y1: building.y1, x2: building.x2, y2: building.y2 }];
+  const wallH = 42;
 
   for (const r of rects) {
     const x1 = r.x1;
@@ -970,94 +921,59 @@ export function renderMinimap(mctx, player, activeChunks) {
   mctx.fillStyle = '#14221a';
   mctx.fillRect(0, 0, w, h);
 
-  if (atlasState.loaded) {
-    // 1. Draw real OSM polygons (water, quarry, buildings) in 1:1 metric space
-    for (const f of atlasState.features) {
-      if (f.kind === 'poly') {
-        if (f.props.natural === 'water' || f.props.waterway) {
-          mctx.fillStyle = '#2563eb';
-        } else if (f.props.landuse === 'quarry') {
-          mctx.fillStyle = 'rgba(74, 222, 128, 0.32)';
-        } else if (f.props.building) {
-          mctx.fillStyle = 'rgba(203, 213, 225, 0.52)';
-        } else {
-          continue;
-        }
-        mctx.beginPath();
-        f.pts.forEach((pt, idx) => {
-          if (idx === 0) mctx.moveTo(pt.x * scale, pt.y * scale);
-          else mctx.lineTo(pt.x * scale, pt.y * scale);
-        });
-        mctx.closePath();
-        mctx.fill();
-      }
-    }
+  // District shading (Downtown, West & East Suburbs, Highway Corridor)
+  mctx.fillStyle = 'rgba(100, 116, 139, 0.28)';
+  mctx.fillRect(760 * scale, 580 * scale, 500 * scale, 480 * scale);
+  mctx.fillStyle = 'rgba(100, 116, 139, 0.16)';
+  mctx.fillRect(340 * scale, 620 * scale, 380 * scale, 440 * scale);
+  mctx.fillRect(1420 * scale, 580 * scale, 380 * scale, 420 * scale);
 
-    // 2. Draw real OSM roads & waterways
-    for (const f of atlasState.features) {
-      if (f.kind !== 'line') continue;
-      if (f.props.waterway) {
-        mctx.strokeStyle = '#2563eb';
-        mctx.lineWidth = 1.6;
-      } else if (f.props.highway === 'primary' || f.props.highway === 'trunk') {
-        mctx.strokeStyle = '#f59e0b';
-        mctx.lineWidth = 1.6;
-      } else if (f.props.highway) {
-        mctx.strokeStyle = '#64748b';
-        mctx.lineWidth = 1.0;
-      } else {
-        continue;
-      }
-      mctx.beginPath();
-      f.pts.forEach((pt, idx) => {
-        if (idx === 0) mctx.moveTo(pt.x * scale, pt.y * scale);
-        else mctx.lineTo(pt.x * scale, pt.y * scale);
-      });
-      mctx.stroke();
-    }
-  } else {
-    mctx.fillStyle = 'rgba(100, 116, 139, 0.22)';
-    mctx.fillRect(360 * scale, 290 * scale, 270 * scale, 250 * scale);
-    mctx.fillRect(220 * scale, 340 * scale, 140 * scale, 160 * scale);
-
-    mctx.strokeStyle = '#2563eb';
-    mctx.lineWidth = 2;
-    mctx.beginPath();
-    for (let wy = 0; wy <= MAP_SIZE; wy += 32) {
-      const cx = 655 + Math.sin(wy * 0.018) * 32 + Math.cos(wy * 0.045) * 14;
-      if (wy === 0) mctx.moveTo(cx * scale, wy * scale);
-      else mctx.lineTo(cx * scale, wy * scale);
-    }
-    mctx.stroke();
-
-    mctx.strokeStyle = '#64748b';
-    mctx.lineWidth = 1.2;
-    mctx.beginPath();
-    for (let wx = 0; wx <= MAP_SIZE; wx += 32) {
-      const wy = 252 + Math.sin(wx * 0.007) * 10;
-      if (wx === 0) mctx.moveTo(wx * scale, wy * scale);
-      else mctx.lineTo(wx * scale, wy * scale);
-    }
-    for (const sy of [310, 358, 406, 454, 502]) {
-      mctx.moveTo(360 * scale, sy * scale);
-      mctx.lineTo(630 * scale, sy * scale);
-    }
-    for (const sx of [384, 448, 512, 576, 624]) {
-      mctx.moveTo(sx * scale, 290 * scale);
-      mctx.lineTo(sx * scale, 540 * scale);
-    }
-    mctx.moveTo(520 * scale, 760 * scale);
-    mctx.lineTo(558 * scale, 245 * scale);
-    mctx.moveTo(515 * scale, 485 * scale);
-    mctx.lineTo(140 * scale, 645 * scale);
-    mctx.moveTo(540 * scale, 730 * scale);
-    mctx.lineTo(635 * scale, 1010 * scale);
-    mctx.stroke();
+  // Euharlee River
+  mctx.strokeStyle = '#2563eb';
+  mctx.lineWidth = 1.8;
+  mctx.beginPath();
+  for (let wy = 0; wy <= MAP_SIZE; wy += 48) {
+    const rx = getRiverCenterX(wy);
+    if (wy === 0) mctx.moveTo(rx * scale, wy * scale);
+    else mctx.lineTo(rx * scale, wy * scale);
   }
+  mctx.stroke();
 
-  // Highlight Quarry Safe Hub boundary
+  // Interstate-20 Freeway
+  mctx.strokeStyle = '#f97316';
+  mctx.lineWidth = 1.8;
+  mctx.beginPath();
+  for (let wx = 0; wx <= MAP_SIZE; wx += 48) {
+    const wy = 230 + Math.sin(wx * 0.0025) * 14;
+    if (wx === 0) mctx.moveTo(wx * scale, wy * scale);
+    else mctx.lineTo(wx * scale, wy * scale);
+  }
+  mctx.stroke();
+
+  // US-278 Highway & Main Arterials
+  mctx.strokeStyle = '#94a3b8';
+  mctx.lineWidth = 1.1;
+  mctx.beginPath();
+  for (let wx = 0; wx <= MAP_SIZE; wx += 48) {
+    const wy = 515 + Math.sin(wx * 0.0035) * 16;
+    if (wx === 0) mctx.moveTo(wx * scale, wy * scale);
+    else mctx.lineTo(wx * scale, wy * scale);
+  }
+  // Piedmont Blvd, S Marble St & Westfield Collector
+  mctx.moveTo(1140 * scale, 512 * scale);
+  mctx.lineTo(1140 * scale, 1060 * scale);
+  mctx.moveTo(1024 * scale, 1435 * scale);
+  mctx.lineTo(1094 * scale, 515 * scale);
+  mctx.moveTo(540 * scale, 515 * scale);
+  mctx.lineTo(540 * scale, 1120 * scale);
+  // Southern rural cross-road & bridge
+  mctx.moveTo(1024 * scale, 1320 * scale);
+  mctx.lineTo(1880 * scale, 1320 * scale);
+  mctx.stroke();
+
+  // Quarry Safe Hub
   const qc = getQuarryCenter();
-  mctx.fillStyle = 'rgba(34, 197, 94, 0.22)';
+  mctx.fillStyle = 'rgba(34, 197, 94, 0.25)';
   mctx.strokeStyle = '#4ade80';
   mctx.lineWidth = 1.2;
   mctx.beginPath();
@@ -1065,11 +981,21 @@ export function renderMinimap(mctx, player, activeChunks) {
   mctx.fill();
   mctx.stroke();
 
-  const pdSpot = atlasState.policeLocation || policePrecinct;
+  // Police Precinct marker
   mctx.fillStyle = '#38bdf8';
-  mctx.fillRect(pdSpot.x * scale - 2, pdSpot.y * scale - 2, 4, 4);
+  mctx.fillRect(policePrecinct.x * scale - 2, policePrecinct.y * scale - 2, 4, 4);
 
+  // Active chunk buildings & supply markers
   for (const c of activeChunks) {
+    mctx.fillStyle = 'rgba(203, 213, 225, 0.55)';
+    for (const b of c.buildings) {
+      mctx.fillRect(
+        b.x1 * scale,
+        b.y1 * scale,
+        Math.max(1.5, (b.x2 - b.x1) * scale),
+        Math.max(1.5, (b.y2 - b.y1) * scale)
+      );
+    }
     for (const item of c.loot) {
       if (item.type === 'convoy' || item.type === 'heavy') {
         mctx.fillStyle = item.type === 'heavy' ? '#fb923c' : '#22d3ee';
