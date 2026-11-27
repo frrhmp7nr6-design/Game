@@ -1,8 +1,8 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 // Paste your Supabase Project URL and Anon Key here:
-const SUPABASE_URL = 'https://YOUR_PROJECT_REF.supabase.co';
-const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
+const SUPABASE_URL = "https://fwpnbbkyhugzppclsgbl.supabase.co";
+const SUPABASE_ANON_KEY = sb_publishable_QU5rvS7F-VfmocfgP1SqKw_gymqv9bQ";
 const ROOM_CHANNEL = 'isowalk-act1-server';
 
 export const remotePlayers = new Map();
