@@ -154,7 +154,6 @@ export function classifyRoad(wx, wy) {
     const hutchinsX = 1024 + (wy - 1420) * 0.32 + Math.sin(wy * 0.015) * 24;
     if (Math.abs(wx - hutchinsX) <= 1.5) return { tile: 3, kind: 'rural' };
   }
-  // Southern rural cross-road with bridge over Euharlee River
   if (wx >= 1024 && wx <= 1880) {
     const southCountyY = 1320 + Math.sin(wx * 0.008) * 24;
     if (Math.abs(wy - southCountyY) <= 1.5) return { tile: 3, kind: 'rural' };
@@ -540,7 +539,6 @@ function generateChunk(cx, cy) {
   const baseX = cx * CHUNK_SIZE;
   const baseY = cy * CHUNK_SIZE;
 
-  // Pass 1: Terrain, Euharlee River, Bridges, Roads & Quarry Safe Hub
   for (let ly = 0; ly < CHUNK_SIZE; ly++) {
     const wy = baseY + ly;
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
@@ -552,7 +550,6 @@ function generateChunk(cx, cy) {
         continue;
       }
 
-      // Roads & Bridges take precedence over river water so bridges span cleanly
       const roadInfo = classifyRoad(wx, wy);
       if (roadInfo.kind !== 'none') {
         tiles[idx] = roadInfo.tile;
@@ -579,7 +576,7 @@ function generateChunk(cx, cy) {
     }
   }
 
-  // Pass 2: Guaranteed Landmarks (Quarry Safe Hub & Rockmart Police Precinct)
+  // Guaranteed Landmarks: Quarry Safe Hub
   if (Math.abs(baseX + 16 - QUARRY_X) <= 48 && Math.abs(baseY + 16 - QUARRY_Y) <= 48) {
     stampCompoundBuilding(chunk, {
       id: 'quarry-garage',
@@ -636,7 +633,7 @@ function generateChunk(cx, cy) {
     }
   }
 
-  // Rockmart Police Precinct at (1120, 920) in Downtown Rockmart
+  // Rockmart Police Precinct at (1120, 920)
   if (cx === 35 && cy === 28) {
     stampCompoundBuilding(chunk, {
       id: 'rockmart-pd',
@@ -677,7 +674,7 @@ function generateChunk(cx, cy) {
     return chunk;
   }
 
-  // Pass 3: Regional District Building & Encounter Rules
+  // Regional District Building & Encounter Rules
   const midX = baseX + 16;
   const midY = baseY + 16;
   const district = getDistrictAt(midX, midY);
@@ -701,7 +698,6 @@ function generateChunk(cx, cy) {
     : 0.84;
 
   if (seed > spawnThreshold) {
-    // Find an east-west street inside this chunk to align storefronts/houses along
     let targetRoadY = null;
     for (let y = baseY + 12; y <= baseY + 29; y++) {
       if (getRoadType(baseX + 16, y) === 3) {
@@ -720,7 +716,6 @@ function generateChunk(cx, cy) {
         }
       }
     } else if (!isRural && hash2d(cx * 13, cy * 17) > 0.35) {
-      // Mid-block lots in Downtown/Suburbs
       lots.push({ bx: baseX + 5, by: baseY + 6, bw: 9, bh: 8, s: hash2d(cx * 7, cy * 13) });
       if (isDowntown) {
         lots.push({ bx: baseX + 18, by: baseY + 16, bw: 9, bh: 8, s: hash2d(cx * 19, cy * 23) });
@@ -732,7 +727,6 @@ function generateChunk(cx, cy) {
     }
 
     lots.forEach((lot, idx) => {
-      // Strictly enforce zero overlap with roads, river, or quarry
       if (!isLotClear(lot.bx, lot.by, lot.bw, lot.bh, 2)) return;
 
       const isCommercial =
@@ -822,7 +816,6 @@ function generateChunk(cx, cy) {
     });
   }
 
-  // Outdoor roaming zombies scaled by district density
   const outdoorCount = isDowntown ? 3 : isSuburb || isHighwayStrip ? 2 : 1;
   for (let i = 0; i < outdoorCount; i++) {
     const zx = baseX + 3 + Math.floor(hash2d(cx + i * 13, cy + 5) * 26) + 0.5;
