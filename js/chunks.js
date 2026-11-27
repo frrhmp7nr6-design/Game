@@ -1,18 +1,10 @@
 export const CHUNK_SIZE = 32;
-export const WORLD_CHUNKS = 32; // 32 x 32 chunks = 1024 x 1024 tiles
+export const WORLD_CHUNKS = 32;
 export const MAP_SIZE = CHUNK_SIZE * WORLD_CHUNKS; // 1024
 export const CENTER = 512;
 
-// Threat Ring boundaries (Chebyshev distance from 512, 512)
-// 0..64   = Quarry Camp Safe Hub (128x128)
-// 65..210 = Ring 1: Oakridge Suburbs
-// 211..370 = Ring 2: Highway 9 & Midtown
-// 371..503 = Ring 3: Quarantine Perimeter
-// 504..512 = Fortified Quarantine Wall
-
 const chunkCache = new Map();
 
-// Persistent delta overrides so opened doors, looted items & killed zombies stay saved
 export const openedDoors = new Set();
 export const doorDamage = new Map();
 export const lootedIds = new Set();
@@ -83,20 +75,17 @@ function generateChunk(cx, cy) {
   const baseX = cx * CHUNK_SIZE;
   const baseY = cy * CHUNK_SIZE;
 
-  // 1. Base terrain pass: Quarry floor, Highway 9 loop & avenues, Quarantine Wall, Grass
   for (let ly = 0; ly < CHUNK_SIZE; ly++) {
     const wy = baseY + ly;
     for (let lx = 0; lx < CHUNK_SIZE; lx++) {
       const wx = baseX + lx;
       const d = Math.max(Math.abs(wx - CENTER), Math.abs(wy - CENTER));
 
-      // Outer Quarantine Wall (8 tiles thick)
       if (d >= 504) {
         tiles[ly * CHUNK_SIZE + lx] = 2;
         continue;
       }
 
-      // Quarry Camp 128x128 Safe Hub perimeter fence (d == 64) with 4 cardinal gates
       if (d === 64) {
         const isGate =
           (Math.abs(wx - CENTER) <= 2 && (wy === 448 || wy === 576)) ||
@@ -105,13 +94,11 @@ function generateChunk(cx, cy) {
         continue;
       }
 
-      // Quarry interior limestone & gravel floor
       if (d < 64) {
         tiles[ly * CHUNK_SIZE + lx] = 1;
         continue;
       }
 
-      // Highway 9 Ring Loop (d = 240..245) & Cardinal Main Arteries (x or y in 510..514)
       const onRingRoad = d >= 240 && d <= 245;
       const onCardinalRoad =
         (wx >= CENTER - 2 && wx <= CENTER + 2) || (wy >= CENTER - 2 && wy <= CENTER + 2);
@@ -124,9 +111,7 @@ function generateChunk(cx, cy) {
     }
   }
 
-  // 2. Quarry Camp Fixed Landmarks (Chunks 14..17, 14..17)
   if (cx >= 14 && cx <= 17 && cy >= 14 && cy <= 17) {
-    // Iron Convoy Garage (open-front workshop near center 496..506, 496..505)
     stampBuilding(
       chunk,
       'quarry-garage',
@@ -142,7 +127,6 @@ function generateChunk(cx, cy) {
       true
     );
 
-    // Quarry Medical Tent & Quartermaster Supply Depot
     stampBuilding(
       chunk,
       'quarry-depot',
@@ -155,7 +139,6 @@ function generateChunk(cx, cy) {
       true
     );
 
-    // Starter Camp Supplies (only spawn in chunk 15,15 and 16,15)
     if (cx === 15 && cy === 15) {
       addChunkLoot(chunk, 'q-crowbar', 508.5, 508.5, {
         name: 'Crowbar',
@@ -189,7 +172,6 @@ function generateChunk(cx, cy) {
     return chunk;
   }
 
-  // 3. Procedural Landmarks & Encounters outside the Quarry Hub
   const midX = baseX + 16;
   const midY = baseY + 16;
   const zone = getZoneInfo(midX, midY);
@@ -201,7 +183,6 @@ function generateChunk(cx, cy) {
     Math.abs(midY - CENTER) > 22 &&
     Math.abs(Math.max(Math.abs(midX - CENTER), Math.abs(midY - CENTER)) - 242) > 20;
 
-  // Place a building in ~65% of off-road chunks
   if (avoidsRoads && seed > 0.32) {
     const bw = 8 + Math.floor(hash2d(cx + 11, cy) * 6);
     const bh = 8 + Math.floor(hash2d(cx, cy + 17) * 6);
@@ -236,11 +217,15 @@ function generateChunk(cx, cy) {
       { x: Math.floor((bx1 + bx2) / 2), y: by2, state: doorState }
     ]);
 
-    // Interior Convoy Supply Loot (Scrap Plating / Fuel Drum / Military Armor)
     const lx = Math.floor((bx1 + bx2) / 2) + 0.5;
     const ly = Math.floor((by1 + by2) / 2) + 0.5;
+    const crateRoll = hash2d(cx + 51, cy + 59);
+
+    // ~35% chance to spawn a high-value Heavy Supply Crate (+4 Convoy pts, slows carrier)
     const supplyItem =
-      zone.ring === 1
+      crateRoll > 0.65
+        ? { name: 'Heavy Supply Crate', type: 'heavy', value: 4, color: '#fb923c' }
+        : zone.ring === 1
         ? { name: 'Scrap Plating', type: 'convoy', value: 1, color: '#22d3ee' }
         : zone.ring === 2
         ? { name: 'Tanker Fuel Drum', type: 'convoy', value: 2, color: '#f59e0b' }
@@ -248,7 +233,6 @@ function generateChunk(cx, cy) {
 
     addChunkLoot(chunk, `loot-main-${cx}-${cy}`, lx, ly, supplyItem);
 
-    // Secondary loot (weapons, food, meds, lockpicks)
     const secRoll = hash2d(cx + 41, cy + 43);
     let secItem;
     if (secRoll < 0.25) {
@@ -265,11 +249,9 @@ function generateChunk(cx, cy) {
     }
     addChunkLoot(chunk, `loot-sec-${cx}-${cy}`, bx1 + 2.5, by1 + 2.5, secItem);
 
-    // Indoor ambush zombie
     addChunkZombie(chunk, `z-in-${cx}-${cy}`, bx2 - 2.5, by1 + 2.5, zone.ring);
   }
 
-  // Outdoor roaming zombies scaled by Threat Ring
   const outdoorCount = zone.ring === 1 ? 2 : zone.ring === 2 ? 3 : 4;
   for (let i = 0; i < outdoorCount; i++) {
     const zx = baseX + 3 + Math.floor(hash2d(cx + i * 13, cy + 5) * 26) + 0.5;
@@ -291,7 +273,6 @@ function addChunkLoot(chunk, id, x, y, props) {
 
 function addChunkZombie(chunk, id, x, y, ring) {
   if (killedZombieIds.has(id)) return;
-  // Ring 1 = Walkers, Ring 2 = Sprinters, Ring 3 = Armored Brutes
   const tier =
     ring === 1
       ? { kind: 'walker', hp: 95, speed: 1.85, dmg: 11, color: '#4d7c0f', scale: 1 }
@@ -326,7 +307,6 @@ export function getChunk(cx, cy) {
   if (cx < 0 || cy < 0 || cx >= WORLD_CHUNKS || cy >= WORLD_CHUNKS) return null;
   const key = `${cx},${cy}`;
   if (!chunkCache.has(key)) {
-    // Keep cache bounded around ~64 chunks max for low iPad RAM footprint
     if (chunkCache.size > 64) {
       const oldest = chunkCache.keys().next().value;
       chunkCache.delete(oldest);
