@@ -55,7 +55,6 @@ export function worldToScreen(wx, wy, camX, camY) {
   };
 }
 
-// Iron Convoy Garage, Workbench & Campfire inside resized Quarry Safe Hub (540, 745)
 export const convoyGarage = {
   x: QUARRY_X - 10.5,
   y: QUARRY_Y - 11.5,
@@ -86,8 +85,8 @@ export function syncQuarryLandmarks() {
 }
 
 export const policePrecinct = {
-  x: 565.5,
-  y: 472.5
+  x: 1125.5,
+  y: 916.5
 };
 
 export const campUpgrades = {
@@ -99,33 +98,33 @@ export const campUpgrades = {
 const DISTRESS_LOCATIONS = [
   {
     name: 'Mechanic Dale',
-    x: 498.5,
-    y: 473.5,
-    callout: 'Pinned down outside Hometown Pizza on Elm St!'
+    x: 980.5,
+    y: 890.5,
+    callout: 'Pinned down on Elm Ave in Downtown Rockmart!'
   },
   {
     name: 'Nurse Clara',
-    x: 595.5,
-    y: 410.5,
-    callout: 'Trapped near N Piedmont Ave & College St!'
+    x: 1140.5,
+    y: 710.5,
+    callout: 'Trapped on Piedmont Blvd near Midtown Pharmacy!'
   },
   {
     name: 'Gunsmith Marcus',
-    x: 285.5,
-    y: 364.5,
-    callout: 'Hiding inside an Oakridge Subdivision house!'
+    x: 540.5,
+    y: 760.5,
+    callout: 'Barricaded along Westfield Rd in Oakridge Suburbs!'
   },
   {
     name: 'Quartermaster Mae',
-    x: 463.5,
-    y: 260.5,
-    callout: 'Barricaded near Low True Hardware on US-278!'
+    x: 920.5,
+    y: 515.5,
+    callout: 'Holding out at the US-278 Truck Stop!'
   },
   {
     name: 'Engineer Brooks',
-    x: 572.5,
-    y: 835.5,
-    callout: 'Stranded at a rural farmhouse on Hutchins Mountain Rd!'
+    x: 1580.5,
+    y: 740.5,
+    callout: 'Stranded across the Euharlee River in Eastbrook Suburbs!'
   }
 ];
 
@@ -134,8 +133,8 @@ export const rescueEvent = {
   id: 0,
   name: 'Mechanic Dale',
   callout: '',
-  x: 498.5,
-  y: 473.5,
+  x: 980.5,
+  y: 890.5,
   following: false,
   radioPingTimer: 0
 };
