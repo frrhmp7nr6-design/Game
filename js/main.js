@@ -11,7 +11,9 @@ import {
   getActiveChunks,
   getZoneInfo,
   openedDoors,
-  doorDamage
+  doorDamage,
+  lootedIds,
+  killedZombieIds
 } from './chunks.js';
 import { sticks, keys, sprintHeld, initInput } from './input.js';
 import {
@@ -26,6 +28,12 @@ import {
 } from './inventory.js';
 import { updateCombat, WEAPONS, fxList } from './combat.js';
 import { renderFrame, renderMinimap } from './render.js';
+import {
+  initNetwork,
+  broadcastPlayerState,
+  broadcastWorldEvent,
+  remotePlayers
+} from './net.js';
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -57,7 +65,6 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
-// Spawn inside the 128x128 Quarry Camp Safe Hub near the Convoy Garage & Campfire
 const player = {
   x: 510.5,
   y: 510.5,
@@ -88,7 +95,38 @@ let nearbyDoor = null;
 
 const { toggleBag } = initInventory(player);
 
-// Wire up Archetype Picker buttons
+// Connect to Supabase Realtime co-op room
+initNetwork(player, {
+  onRemoteDoor: ({ key, state }) => {
+    if (state === 'open') openedDoors.add(key);
+    else openedDoors.delete(key);
+    for (const c of activeChunks) {
+      const d = c.doors.find((item) => item.key === key);
+      if (d) d.state = state;
+    }
+  },
+  onRemoteLoot: ({ id }) => {
+    lootedIds.add(id);
+    for (const c of activeChunks) {
+      const idx = c.loot.findIndex((item) => item.id === id);
+      if (idx !== -1) c.loot.splice(idx, 1);
+    }
+  },
+  onRemoteZombieKill: ({ id }) => {
+    killedZombieIds.add(id);
+    for (const c of activeChunks) {
+      const idx = c.zombies.findIndex((z) => z.id === id);
+      if (idx !== -1) c.zombies.splice(idx, 1);
+    }
+  },
+  onRemoteConvoy: ({ points }) => {
+    if (typeof points === 'number' && points > convoyGarage.points) {
+      convoyGarage.points = points;
+      showToast(`🚛 Teammate loaded Convoy Supplies! (${points}/${convoyGarage.targetPoints})`);
+    }
+  }
+});
+
 document.querySelectorAll('.arch-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
     const arch = btn.dataset.arch;
@@ -107,6 +145,7 @@ function handleDoorAction() {
   if (d.state === 'unlocked') {
     d.state = 'open';
     openedDoors.add(d.key);
+    broadcastWorldEvent({ kind: 'door', key: d.key, state: 'open' });
     showToast('Opened door');
     return;
   }
@@ -118,6 +157,7 @@ function handleDoorAction() {
     }
     d.state = 'unlocked';
     openedDoors.delete(d.key);
+    broadcastWorldEvent({ kind: 'door', key: d.key, state: 'unlocked' });
     showToast('Closed door');
     return;
   }
@@ -127,6 +167,7 @@ function handleDoorAction() {
       consumeLockpick(player);
       d.state = 'open';
       openedDoors.add(d.key);
+      broadcastWorldEvent({ kind: 'door', key: d.key, state: 'open' });
       showToast('🔓 Picked lock!');
       return;
     }
@@ -169,6 +210,7 @@ function smashDoor(d) {
   if (d.hp === 0) {
     d.state = 'open';
     openedDoors.add(d.key);
+    broadcastWorldEvent({ kind: 'door', key: d.key, state: 'open' });
     showToast('💥 Smashed door open!');
   } else {
     showToast(`Bashed door (${Math.ceil((d.hp / d.maxHp) * 100)}% left)`);
@@ -185,12 +227,19 @@ function handleConvoyLoad() {
     return;
   }
 
-  showToast(`🚛 Loaded +${added} Convoy Supplies! (${convoyGarage.points}/${convoyGarage.targetPoints})`);
+  broadcastWorldEvent({ kind: 'convoy', points: convoyGarage.points });
+  showToast(
+    `🚛 Loaded +${added} Convoy Supplies! (${convoyGarage.points}/${convoyGarage.targetPoints})`
+  );
 }
 
 initInput(canvas, player, {
   onGrab: () => {
-    if (grabLootItem(player, nearbyLoot, activeChunks)) {
+    const targetItem = nearbyLoot;
+    if (grabLootItem(player, targetItem, activeChunks)) {
+      if (targetItem && targetItem.id) {
+        broadcastWorldEvent({ kind: 'loot', id: targetItem.id });
+      }
       nearbyLoot = null;
       grabBtn.classList.remove('visible');
     }
@@ -254,12 +303,24 @@ function update(dt) {
   const hungerDrain = player.isSprinting ? 0.95 : isMoving ? 0.45 : 0.2;
   player.hunger = Math.max(0, player.hunger - hungerDrain * dt);
 
-  // Campfire healing inside Quarry Hub + Medic passive triage regen
+  // Campfire healing + Medic aura (both self and nearby Medic allies)
   const nearCampfire = Math.hypot(quarryCampfire.x - player.x, quarryCampfire.y - player.y) < 3.2;
+  let nearAllyMedic = false;
+  for (const rp of remotePlayers.values()) {
+    if (rp.archetype === 'medic' && Math.hypot(rp.x - player.x, rp.y - player.y) < 4.5) {
+      nearAllyMedic = true;
+      break;
+    }
+  }
+
   if (nearCampfire && player.hp < player.maxHp) {
     player.hp = Math.min(player.maxHp, player.hp + 4.5 * dt);
-  } else if (player.archetype === 'medic' && player.hp < player.maxHp && player.hunger > 25) {
-    player.hp = Math.min(player.maxHp, player.hp + 1.5 * dt);
+  } else if (
+    (player.archetype === 'medic' || nearAllyMedic) &&
+    player.hp < player.maxHp &&
+    player.hunger > 25
+  ) {
+    player.hp = Math.min(player.maxHp, player.hp + 1.8 * dt);
   }
 
   if (player.hunger === 0) {
@@ -304,6 +365,7 @@ function update(dt) {
   }
 
   updateCombat(dt, player, activeChunks);
+  broadcastPlayerState(player);
 
   if (player.hp <= 0) {
     player.dead = true;
@@ -316,7 +378,6 @@ function update(dt) {
     return;
   }
 
-  // Iron Convoy HUD
   const inBagPoints = inventory
     .filter((i) => i.type === 'convoy')
     .reduce((sum, i) => sum + (i.value || 1), 0);
@@ -327,7 +388,6 @@ function update(dt) {
       : 'Explore Threat Rings 1–3 for Scrap Plating, Fuel & Military Armor';
   missionFillEl.style.width = `${(convoyGarage.points / convoyGarage.targetPoints) * 100}%`;
 
-  // Proximity check for Doors across active chunks
   nearbyDoor = null;
   let bestDoorDist = 1.45;
   for (const c of activeChunks) {
@@ -354,7 +414,6 @@ function update(dt) {
     doorBtn.classList.remove('visible');
   }
 
-  // Proximity check for Convoy Garage delivery
   const distToGarage = Math.hypot(convoyGarage.x - player.x, convoyGarage.y - player.y);
   if (distToGarage <= 2.2 && inBagPoints > 0) {
     repairBtn.classList.add('visible');
@@ -362,7 +421,6 @@ function update(dt) {
     repairBtn.classList.remove('visible');
   }
 
-  // Proximity check for Loot
   nearbyLoot = null;
   let bestLootDist = 1.15;
   for (const item of getNearbyLootList(activeChunks)) {
@@ -380,7 +438,6 @@ function update(dt) {
     grabBtn.classList.remove('visible');
   }
 
-  // Top HUD & Zone Readout
   const zone = getZoneInfo(player.x, player.y);
   hpFill.style.width = `${(player.hp / player.maxHp) * 100}%`;
   stamFill.style.width = `${player.stamina}%`;
