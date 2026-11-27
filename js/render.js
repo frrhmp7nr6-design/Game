@@ -4,6 +4,7 @@ import {
   MAP_SIZE,
   CENTER,
   convoyGarage,
+  quarryWorkbench,
   quarryCampfire,
   rescueEvent,
   rescuedSpecialists,
@@ -202,6 +203,7 @@ function drawRoofCap(ctx, building, camX, camY) {
 }
 
 function drawQuarryLandmarks(ctx, camX, camY) {
+  // 1. Iron Convoy Garage
   const gPos = worldToScreen(convoyGarage.x, convoyGarage.y, camX, camY);
   if (gPos.x > -100 && gPos.x < window.innerWidth + 100) {
     ctx.beginPath();
@@ -222,6 +224,28 @@ function drawQuarryLandmarks(ctx, camX, camY) {
     ctx.fillText('IRON CONVOY', gPos.x, gPos.y - 28);
   }
 
+  // 2. Quarry Crafting Workbench inside Quarry Depot (523.5, 500.5)
+  const wPos = worldToScreen(quarryWorkbench.x, quarryWorkbench.y, camX, camY);
+  if (wPos.x > -100 && wPos.x < window.innerWidth + 100) {
+    ctx.beginPath();
+    ctx.ellipse(wPos.x, wPos.y + 4, 28, 14, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = '#fbbf24';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    ctx.fillStyle = '#b45309';
+    ctx.fillRect(wPos.x - 14, wPos.y - 16, 28, 14);
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(wPos.x - 14, wPos.y - 16, 28, 14);
+
+    ctx.font = 'bold 10px -apple-system, sans-serif';
+    ctx.fillStyle = '#fde68a';
+    ctx.textAlign = 'center';
+    ctx.fillText('WORKBENCH', wPos.x, wPos.y - 22);
+  }
+
+  // 3. Central Quarry Campfire
   const fPos = worldToScreen(quarryCampfire.x, quarryCampfire.y, camX, camY);
   if (fPos.x > -100 && fPos.x < window.innerWidth + 100) {
     ctx.beginPath();
@@ -248,7 +272,6 @@ function drawRescueNpc(ctx, npc, camX, camY, isRescueTarget) {
   const pos = worldToScreen(npc.x, npc.y, camX, camY);
   if (pos.x < -80 || pos.x > window.innerWidth + 80) return;
 
-  // Distress flare ring if waiting to be rescued
   if (isRescueTarget && !npc.following) {
     const pulse = 18 + Math.sin(performance.now() / 180) * 6;
     ctx.beginPath();
@@ -298,8 +321,7 @@ function drawLoot(ctx, item, camX, camY, isHighlighted) {
   }
 
   if (item.type === 'heavy') {
-    // Draw bulky wooden/steel crate box
-    ctx.fillStyle = '#ea580c';
+    ctx.fillStyle = item.color || '#ea580c';
     ctx.fillRect(pos.x - 8, pos.y - 13, 16, 13);
     ctx.strokeStyle = '#0f172a';
     ctx.lineWidth = 1.5;
@@ -373,18 +395,23 @@ function drawZombie(ctx, z, camX, camY) {
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  if (z.aggro && z.hp === z.maxHp) {
+  if (z.isBoss) {
+    ctx.font = 'bold 10px -apple-system, sans-serif';
+    ctx.fillStyle = '#f0abfc';
+    ctx.textAlign = 'center';
+    ctx.fillText('👑 JUGGERNAUT', pos.x, pos.y - 45 * s - bob);
+  } else if (z.aggro && z.hp === z.maxHp) {
     ctx.font = 'bold 13px -apple-system, sans-serif';
     ctx.fillStyle = '#ef4444';
     ctx.textAlign = 'center';
     ctx.fillText('!', pos.x, pos.y - 36 * s - bob);
   }
 
-  if (z.hp < z.maxHp) {
-    const bw = 26 * s;
+  if (z.hp < z.maxHp || z.isBoss) {
+    const bw = 28 * s;
     ctx.fillStyle = '#0f172a';
     ctx.fillRect(pos.x - bw / 2, pos.y - 39 * s - bob, bw, 4);
-    ctx.fillStyle = '#ef4444';
+    ctx.fillStyle = z.isBoss ? '#e879f9' : '#ef4444';
     ctx.fillRect(pos.x - bw / 2, pos.y - 39 * s - bob, bw * (z.hp / z.maxHp), 4);
   }
 }
@@ -475,9 +502,8 @@ function drawPlayer(ctx, player, camX, camY, objectiveTarget) {
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Draw Heavy Supply Crate strapped onto player's back when hauling
   if (player.carryingCrate) {
-    ctx.fillStyle = '#ea580c';
+    ctx.fillStyle = player.carryingCrate.color || '#ea580c';
     ctx.fillRect(pos.x - 9, pos.y - 24, 18, 13);
     ctx.strokeStyle = '#fde047';
     ctx.lineWidth = 1.5;
@@ -598,9 +624,14 @@ export function renderMinimap(mctx, player, activeChunks) {
         mctx.fillRect(item.x * scale - 1.5, item.y * scale - 1.5, 3, 3);
       }
     }
+    for (const z of c.zombies) {
+      if (z.isBoss) {
+        mctx.fillStyle = '#e879f9';
+        mctx.fillRect(z.x * scale - 2, z.y * scale - 2, 4, 4);
+      }
+    }
   }
 
-  // Pulsing Magenta Neighbor Rescue Flare beacon on minimap
   if (rescueEvent.active && !rescueEvent.following) {
     const pulse = 3 + Math.sin(performance.now() / 160) * 1.5;
     mctx.strokeStyle = '#f472b6';
@@ -699,7 +730,6 @@ export function renderFrame(ctx, player, activeChunks, nearbyLoot, nearbyDoor, o
     });
   }
 
-  // Active Rescue Flare NPC
   if (rescueEvent.active) {
     renderables.push({
       depth: depthOf(rescueEvent.x, rescueEvent.y) + 0.09,
@@ -707,7 +737,6 @@ export function renderFrame(ctx, player, activeChunks, nearbyLoot, nearbyDoor, o
     });
   }
 
-  // Rescued Specialists settled inside Quarry Camp
   for (const spec of rescuedSpecialists) {
     if (spec.x < minX || spec.x > maxX || spec.y < minY || spec.y > maxY) continue;
     renderables.push({
