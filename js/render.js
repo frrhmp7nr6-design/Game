@@ -77,16 +77,18 @@ function drawTile(ctx, wx, wy, camX, camY, type, isHiddenInterior) {
   if (isHiddenInterior) {
     ctx.fillStyle = '#090d14';
   } else if (type === 1) {
-    ctx.fillStyle = (wx + wy) % 2 === 0 ? '#3b4252' : '#333a48'; // Quarry limestone / concrete
+    ctx.fillStyle = (wx + wy) % 2 === 0 ? '#475569' : '#3f4c5e'; // Sidewalks & Concrete
   } else if (type === 3) {
     ctx.fillStyle = (wx + wy) % 2 === 0 ? '#27272a' : '#202023'; // Asphalt roads
   } else if (type === 4) {
-    ctx.fillStyle = (wx + wy) % 2 === 0 ? '#1d4ed8' : '#1e40af'; // Euharlee Creek water
+    ctx.fillStyle = (wx + wy) % 2 === 0 ? '#1d4ed8' : '#1e40af'; // Euharlee Creek
+  } else if (type === 5) {
+    ctx.fillStyle = (wx + wy) % 2 === 0 ? '#5c4033' : '#4e362b'; // Rural dirt/gravel lane
   } else {
     ctx.fillStyle = (wx + wy) % 2 === 0 ? '#1c2b21' : '#18241c'; // Georgia pine woods
   }
   ctx.fill();
-  ctx.strokeStyle = isHiddenInterior ? '#090d14' : 'rgba(15, 23, 42, 0.38)';
+  ctx.strokeStyle = isHiddenInterior ? '#090d14' : 'rgba(15, 23, 42, 0.35)';
   ctx.lineWidth = 1;
   ctx.stroke();
 }
@@ -97,7 +99,7 @@ function isWallOccludingUnit(wallScreen, unitScreen) {
   return dy > 4 && dy < 58 && dx < 46;
 }
 
-function drawWall(ctx, wx, wy, camX, camY, player, visibleZombies) {
+function drawWall(ctx, wx, wy, camX, camY, player, visibleZombies, building, wallMeta) {
   const p = worldToScreen(wx, wy, camX, camY);
   if (
     p.x < -TILE_W ||
@@ -122,16 +124,74 @@ function drawWall(ctx, wx, wy, camX, camY, player, visibleZombies) {
     }
   }
 
-  drawExtrudedBlock(
-    ctx,
-    wx,
-    wy,
-    camX,
-    camY,
-    42,
-    { left: '#475569', right: '#334155', top: '#64748b' },
-    occluding ? 0.32 : 1
-  );
+  const pal = building?.palette;
+  const colors = pal
+    ? { left: pal.wallL, right: pal.wallR, top: pal.trim || '#64748b' }
+    : { left: '#475569', right: '#334155', top: '#64748b' };
+
+  const alpha = occluding ? 0.32 : 1;
+  const h = 42;
+  drawExtrudedBlock(ctx, wx, wy, camX, camY, h, colors, alpha);
+
+  // Draw recessed Windows or Boarded Planks on camera-facing wall faces
+  if (wallMeta && wallMeta.hasWindow && !occluding) {
+    ctx.save();
+    ctx.globalAlpha = 0.92;
+    const winColor = wallMeta.isBoarded ? '#92400e' : '#38bdf8';
+
+    if (wallMeta.faceSouth) {
+      // Left isometric face (+y south-facing)
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.moveTo(p.x - 24, p.y + 12);
+      ctx.lineTo(p.x - 8, p.y + 20);
+      ctx.lineTo(p.x - 8, p.y + 4);
+      ctx.lineTo(p.x - 24, p.y - 4);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = winColor;
+      ctx.beginPath();
+      ctx.moveTo(p.x - 22, p.y + 11);
+      ctx.lineTo(p.x - 10, p.y + 17);
+      ctx.lineTo(p.x - 10, p.y + 6);
+      ctx.lineTo(p.x - 22, p.y);
+      ctx.closePath();
+      ctx.fill();
+    } else if (wallMeta.faceEast) {
+      // Right isometric face (+x east-facing)
+      ctx.fillStyle = '#0f172a';
+      ctx.beginPath();
+      ctx.moveTo(p.x + 8, p.y + 20);
+      ctx.lineTo(p.x + 24, p.y + 12);
+      ctx.lineTo(p.x + 24, p.y - 4);
+      ctx.lineTo(p.x + 8, p.y + 4);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = winColor;
+      ctx.beginPath();
+      ctx.moveTo(p.x + 10, p.y + 17);
+      ctx.lineTo(p.x + 22, p.y + 11);
+      ctx.lineTo(p.x + 22, p.y);
+      ctx.lineTo(p.x + 10, p.y + 6);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Commercial storefront awning overhang above South windows
+    if (building?.category === 'commercial' && wallMeta.faceSouth && pal?.awning) {
+      ctx.fillStyle = pal.awning;
+      ctx.beginPath();
+      ctx.moveTo(p.x - TILE_W / 2, p.y + TILE_H / 2 - 28);
+      ctx.lineTo(p.x, p.y + TILE_H - 28);
+      ctx.lineTo(p.x - 6, p.y + TILE_H - 20);
+      ctx.lineTo(p.x - TILE_W / 2 - 6, p.y + TILE_H / 2 - 20);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
 }
 
 function drawDoor(ctx, door, camX, camY, isHighlighted) {
@@ -173,37 +233,91 @@ function drawDoor(ctx, door, camX, camY, isHighlighted) {
   }
 }
 
-function drawRoofCap(ctx, building, camX, camY) {
-  for (let y = building.y1; y <= building.y2; y++) {
-    for (let x = building.x1; x <= building.x2; x++) {
-      const p = worldToScreen(x, y, camX, camY);
-      if (
-        p.x < -TILE_W ||
-        p.x > window.innerWidth + TILE_W ||
-        p.y < -TILE_H * 2 ||
-        p.y > window.innerHeight + TILE_H
-      ) {
-        continue;
-      }
-      const h = 42;
-      ctx.fillStyle = (x + y) % 2 === 0 ? 'rgba(30, 41, 59, 0.94)' : 'rgba(23, 32, 46, 0.94)';
-      ctx.beginPath();
-      ctx.moveTo(p.x, p.y - h);
-      ctx.lineTo(p.x + TILE_W / 2, p.y + TILE_H / 2 - h);
-      ctx.lineTo(p.x, p.y + TILE_H - h);
-      ctx.lineTo(p.x - TILE_W / 2, p.y + TILE_H / 2 - h);
-      ctx.closePath();
-      ctx.fill();
-    }
+function drawInteriorProp(ctx, prop, camX, camY) {
+  const pos = worldToScreen(prop.x, prop.y, camX, camY);
+  if (prop.kind === 'bed') {
+    ctx.fillStyle = '#1e3a8a';
+    ctx.fillRect(pos.x - 10, pos.y - 10, 20, 11);
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(pos.x - 9, pos.y - 10, 7, 6);
+  } else if (prop.kind === 'counter' || prop.kind === 'shelf') {
+    ctx.fillStyle = '#78350f';
+    ctx.fillRect(pos.x - 12, pos.y - 11, 24, 10);
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(pos.x - 12, pos.y - 11, 24, 10);
+  } else {
+    ctx.fillStyle = '#92400e';
+    ctx.beginPath();
+    ctx.ellipse(pos.x, pos.y - 4, 10, 5, 0, 0, Math.PI * 2);
+    ctx.fill();
   }
+}
 
+function drawRoofCap(ctx, building, camX, camY) {
+  const pal = building.palette || {
+    roofL: 'rgba(30, 41, 59, 0.94)',
+    roofR: 'rgba(23, 32, 46, 0.94)'
+  };
   const midX = (building.x1 + building.x2 + 1) / 2;
   const midY = (building.y1 + building.y2 + 1) / 2;
+
+  const cells = building.cellSet ? Array.from(building.cellSet) : [];
+  for (const key of cells) {
+    const [x, y] = key.split(',').map(Number);
+    const p = worldToScreen(x, y, camX, camY);
+    if (
+      p.x < -TILE_W ||
+      p.x > window.innerWidth + TILE_W ||
+      p.y < -TILE_H * 2 ||
+      p.y > window.innerHeight + TILE_H
+    ) {
+      continue;
+    }
+
+    // Pitched 3D ridge elevation for houses vs raised parapet roof for commercial buildings
+    let h = 42;
+    if (building.roofStyle === 'gable' || building.roofStyle === 'hip') {
+      const distFromRidge = Math.abs(y + 0.5 - midY);
+      const maxSpan = Math.max(1, (building.y2 - building.y1) / 2);
+      h = 42 + Math.max(0, (1 - distFromRidge / maxSpan) * 16);
+    } else if (building.roofStyle === 'parapet') {
+      const isEdge =
+        !building.cellSet.has(`${x + 1},${y}`) ||
+        !building.cellSet.has(`${x - 1},${y}`) ||
+        !building.cellSet.has(`${x},${y + 1}`) ||
+        !building.cellSet.has(`${x},${y - 1}`);
+      h = isEdge ? 46 : 42;
+    }
+
+    ctx.fillStyle = y + 0.5 < midY ? pal.roofL : pal.roofR;
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y - h);
+    ctx.lineTo(p.x + TILE_W / 2, p.y + TILE_H / 2 - h);
+    ctx.lineTo(p.x, p.y + TILE_H - h);
+    ctx.lineTo(p.x - TILE_W / 2, p.y + TILE_H / 2 - h);
+    ctx.closePath();
+    ctx.fill();
+  }
+
   const center = worldToScreen(midX, midY, camX, camY);
-  ctx.font = 'bold 12px -apple-system, sans-serif';
-  ctx.fillStyle = building.id === 'rockmart-pd' ? '#38bdf8' : 'rgba(203, 213, 225, 0.88)';
+
+  // Rooftop HVAC unit on commercial roofs or Brick Chimney on residential roofs
+  if (building.category === 'commercial') {
+    ctx.fillStyle = '#94a3b8';
+    ctx.fillRect(center.x - 10, center.y - 52, 20, 11);
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(center.x - 10, center.y - 52, 20, 11);
+  } else {
+    ctx.fillStyle = '#991b1b';
+    ctx.fillRect(center.x + 12, center.y - 62, 7, 12);
+  }
+
+  ctx.font = 'bold 11px -apple-system, sans-serif';
+  ctx.fillStyle = building.id === 'rockmart-pd' ? '#38bdf8' : 'rgba(241, 245, 249, 0.92)';
   ctx.textAlign = 'center';
-  ctx.fillText(building.name.toUpperCase(), center.x, center.y - 42);
+  ctx.fillText(building.name.toUpperCase(), center.x, center.y - 58);
 }
 
 function drawQuarryLandmarks(ctx, camX, camY) {
@@ -470,7 +584,6 @@ function drawPlayer(ctx, player, camX, camY, objectiveTarget) {
   ctx.fill();
   ctx.restore();
 
-  // Proximity Voice Ripple when within 28 tiles of a hidden trapped survivor!
   if (rescueEvent.active && !rescueEvent.following) {
     const distToNpc = Math.hypot(rescueEvent.x - player.x, rescueEvent.y - player.y);
     if (distToNpc <= 28 && distToNpc > 2.2) {
@@ -620,48 +733,55 @@ export function renderMinimap(mctx, player, activeChunks) {
   const scale = w / MAP_SIZE;
   mctx.clearRect(0, 0, w, h);
 
-  // Pine forest terrain base
+  // Rural Georgia pine countryside base
   mctx.fillStyle = '#14221a';
   mctx.fillRect(0, 0, w, h);
 
-  // Winding Euharlee Creek (blue ribbon down east side)
+  // Downtown Rockmart & Oakridge Subdivision community zones
+  mctx.fillStyle = 'rgba(100, 116, 139, 0.22)';
+  mctx.fillRect(360 * scale, 290 * scale, 270 * scale, 250 * scale);
+  mctx.fillRect(220 * scale, 340 * scale, 140 * scale, 160 * scale);
+
+  // Winding Euharlee Creek
   mctx.strokeStyle = '#2563eb';
   mctx.lineWidth = 2;
   mctx.beginPath();
   for (let wy = 0; wy <= MAP_SIZE; wy += 32) {
-    const cx = 635 + Math.sin(wy * 0.018) * 34 + Math.cos(wy * 0.045) * 14;
+    const cx = 655 + Math.sin(wy * 0.018) * 32 + Math.cos(wy * 0.045) * 14;
     if (wy === 0) mctx.moveTo(cx * scale, wy * scale);
     else mctx.lineTo(cx * scale, wy * scale);
   }
   mctx.stroke();
 
-  // Organic Road Network (US-278, Marble St, Piedmont Ave, Morgan Valley Rd, Hutchins Mtn Rd)
+  // Community Road Grid & Rural Highways
   mctx.strokeStyle = '#64748b';
-  mctx.lineWidth = 1.5;
-  // US-278
+  mctx.lineWidth = 1.2;
   mctx.beginPath();
+  // US-278
   for (let wx = 0; wx <= MAP_SIZE; wx += 32) {
-    const wy = 252 + Math.sin(wx * 0.009) * 14;
+    const wy = 252 + Math.sin(wx * 0.007) * 10;
     if (wx === 0) mctx.moveTo(wx * scale, wy * scale);
     else mctx.lineTo(wx * scale, wy * scale);
   }
-  mctx.stroke();
-
-  // S Marble St & Piedmont Ave
-  mctx.beginPath();
+  // Town avenues
+  for (const sy of [310, 358, 406, 454, 502]) {
+    mctx.moveTo(360 * scale, sy * scale);
+    mctx.lineTo(630 * scale, sy * scale);
+  }
+  for (const sx of [384, 448, 512, 576, 624]) {
+    mctx.moveTo(sx * scale, 290 * scale);
+    mctx.lineTo(sx * scale, 540 * scale);
+  }
+  // Marble St spine & rural highways
   mctx.moveTo(520 * scale, 625 * scale);
-  mctx.lineTo(568 * scale, 245 * scale);
-  mctx.moveTo(598 * scale, 530 * scale);
-  mctx.lineTo(598 * scale, 250 * scale);
-  // Morgan Valley Rd
+  mctx.lineTo(558 * scale, 245 * scale);
   mctx.moveTo(515 * scale, 485 * scale);
   mctx.lineTo(140 * scale, 645 * scale);
-  // Hutchins Mtn Rd
   mctx.moveTo(520 * scale, 605 * scale);
   mctx.lineTo(635 * scale, 1010 * scale);
   mctx.stroke();
 
-  // Asymmetrical Rockmart Slate Quarry Hub (south-central)
+  // Asymmetrical Rockmart Slate Quarry Hub
   mctx.fillStyle = 'rgba(34, 197, 94, 0.35)';
   mctx.strokeStyle = '#4ade80';
   mctx.lineWidth = 1.2;
@@ -670,11 +790,10 @@ export function renderMinimap(mctx, player, activeChunks) {
   mctx.fill();
   mctx.stroke();
 
-  // Rockmart Police Precinct marker (cyan badge in Downtown)
+  // Rockmart Police Precinct marker
   mctx.fillStyle = '#38bdf8';
   mctx.fillRect(policePrecinct.x * scale - 2, policePrecinct.y * scale - 2, 4, 4);
 
-  // Active chunk supply dots
   for (const c of activeChunks) {
     for (const item of c.loot) {
       if (item.type === 'convoy' || item.type === 'heavy') {
@@ -684,7 +803,6 @@ export function renderMinimap(mctx, player, activeChunks) {
     }
   }
 
-  // Trapped survivor ONLY shows on minimap when Police Radio is actively receiving their distress signal!
   if (rescueEvent.active && !rescueEvent.following && rescueEvent.radioPingTimer > 0) {
     const pulse = 3 + Math.sin(performance.now() / 160) * 1.5;
     mctx.strokeStyle = '#f472b6';
@@ -720,9 +838,15 @@ export function renderFrame(ctx, player, activeChunks, nearbyLoot, nearbyDoor, o
   const maxY = Math.min(MAP_SIZE - 1, Math.ceil(player.y + 22));
 
   const revealedMap = {};
+  const wallLookup = new Map();
   for (const c of activeChunks) {
     for (const b of c.buildings) {
       revealedMap[b.id] = isBuildingRevealed(b, player, activeChunks);
+      if (b.wallTiles) {
+        for (const wt of b.wallTiles) {
+          wallLookup.set(`${wt.x},${wt.y}`, { building: b, meta: wt });
+        }
+      }
     }
   }
 
@@ -751,9 +875,11 @@ export function renderFrame(ctx, player, activeChunks, nearbyLoot, nearbyDoor, o
   for (let y = minY; y <= maxY; y++) {
     for (let x = minX; x <= maxX; x++) {
       if (getTileAt(x, y) === 2) {
+        const entry = wallLookup.get(`${x},${y}`);
         renderables.push({
           depth: depthOf(x, y),
-          draw: () => drawWall(ctx, x, y, camX, camY, player, visibleZombies)
+          draw: () =>
+            drawWall(ctx, x, y, camX, camY, player, visibleZombies, entry?.building, entry?.meta)
         });
       }
     }
@@ -766,6 +892,20 @@ export function renderFrame(ctx, player, activeChunks, nearbyLoot, nearbyDoor, o
           depth: depthOf(d.x, d.y) + 0.02,
           draw: () => drawDoor(ctx, d, camX, camY, nearbyDoor === d)
         });
+      }
+    }
+
+    // Draw interior furniture when a building's roof is revealed
+    for (const b of c.buildings) {
+      if (revealedMap[b.id] && b.props) {
+        for (const prop of b.props) {
+          if (prop.x >= minX && prop.x <= maxX && prop.y >= minY && prop.y <= maxY) {
+            renderables.push({
+              depth: depthOf(prop.x, prop.y) + 0.03,
+              draw: () => drawInteriorProp(ctx, prop, camX, camY)
+            });
+          }
+        }
       }
     }
   }
