@@ -68,7 +68,6 @@ function drawTile(ctx, wx, wy, camX, camY, type, isHiddenInterior) {
   ctx.closePath();
 
   if (isHiddenInterior) {
-    // Pitch-black interior fog until you open/breach a door or step inside
     ctx.fillStyle = '#090d14';
   } else if (type === 1) {
     ctx.fillStyle = (wx + wy) % 2 === 0 ? '#334155' : '#2d3a4f';
@@ -83,19 +82,32 @@ function drawTile(ctx, wx, wy, camX, camY, type, isHiddenInterior) {
   ctx.stroke();
 }
 
-function drawWall(ctx, wx, wy, camX, camY, player) {
+function isWallOccludingUnit(wallScreen, unitScreen) {
+  // Wall is only in front of the unit if its base sits further down-screen than the unit's feet
+  const dy = wallScreen.y - unitScreen.y;
+  const dx = Math.abs(wallScreen.x - unitScreen.x);
+  return dy > 4 && dy < 58 && dx < 46;
+}
+
+function drawWall(ctx, wx, wy, camX, camY, player, visibleZombies) {
   const p = worldToScreen(wx, wy, camX, camY);
   if (p.x < -TILE_W || p.x > window.innerWidth + TILE_W || p.y < -TILE_H * 2 || p.y > window.innerHeight + TILE_H) {
     return;
   }
 
-  // Cutaway transparency if this wall sits directly in front of the player on screen
-  const pRot = rotateCoords(player.x, player.y);
-  const wRot = rotateCoords(wx + 0.5, wy + 0.5);
-  const inFrontOfPlayer =
-    wRot.rx + wRot.ry > pRot.rx + pRot.ry &&
-    Math.abs(wRot.rx - pRot.rx) < 3.2 &&
-    Math.abs(wRot.ry - pRot.ry) < 3.2;
+  const wallBase = { x: p.x, y: p.y + TILE_H };
+  const playerScreen = worldToScreen(player.x, player.y, camX, camY);
+  let occluding = isWallOccludingUnit(wallBase, playerScreen);
+
+  if (!occluding) {
+    for (const z of visibleZombies) {
+      const zScreen = worldToScreen(z.x, z.y, camX, camY);
+      if (isWallOccludingUnit(wallBase, zScreen)) {
+        occluding = true;
+        break;
+      }
+    }
+  }
 
   drawExtrudedBlock(
     ctx,
@@ -105,7 +117,7 @@ function drawWall(ctx, wx, wy, camX, camY, player) {
     camY,
     42,
     { left: '#475569', right: '#334155', top: '#64748b' },
-    inFrontOfPlayer ? 0.32 : 1
+    occluding ? 0.32 : 1
   );
 }
 
@@ -121,7 +133,6 @@ function drawDoor(ctx, door, camX, camY, isHighlighted) {
   }
 
   if (door.state === 'open') {
-    // Low threshold strip when open
     ctx.fillStyle = 'rgba(146, 64, 14, 0.55)';
     ctx.beginPath();
     ctx.ellipse(pos.x, pos.y, 14, 7, 0, 0, Math.PI * 2);
@@ -129,7 +140,6 @@ function drawDoor(ctx, door, camX, camY, isHighlighted) {
     return;
   }
 
-  // Closed door palette by lock status
   const palette =
     door.state === 'barricaded'
       ? { left: '#7f1d1d', right: '#991b1b', top: '#b91c1c' }
@@ -139,7 +149,6 @@ function drawDoor(ctx, door, camX, camY, isHighlighted) {
 
   drawExtrudedBlock(ctx, door.x, door.y, camX, camY, 36, palette, 1);
 
-  // Status icon above closed door
   ctx.font = 'bold 11px -apple-system, sans-serif';
   ctx.textAlign = 'center';
   if (door.state === 'locked') {
@@ -152,7 +161,6 @@ function drawDoor(ctx, door, camX, camY, isHighlighted) {
 }
 
 function drawRoofCap(ctx, building, camX, camY) {
-  // Draw semi-opaque roof shingle overlay over unrevealed buildings
   for (let y = building.y1; y <= building.y2; y++) {
     for (let x = building.x1; x <= building.x2; x++) {
       const p = worldToScreen(x, y, camX, camY);
@@ -171,7 +179,6 @@ function drawRoofCap(ctx, building, camX, camY) {
     }
   }
 
-  // Building name label on roof
   const midX = (building.x1 + building.x2 + 1) / 2;
   const midY = (building.y1 + building.y2 + 1) / 2;
   const center = worldToScreen(midX, midY, camX, camY);
@@ -449,7 +456,6 @@ export function renderFrame(ctx, player, nearbyLootIndex, nearbyDoor, objectiveT
   const minY = Math.max(0, Math.floor(player.y - 22));
   const maxY = Math.min(MAP_SIZE - 1, Math.ceil(player.y + 22));
 
-  // Determine which buildings are currently revealed
   const revealedMap = {};
   for (const b of buildings) {
     revealedMap[b.id] = isBuildingRevealed(b, player);
@@ -466,7 +472,11 @@ export function renderFrame(ctx, player, nearbyLootIndex, nearbyDoor, objectiveT
     }
   }
 
-  // Depth-sort using rotated coordinates so Painter's Algorithm works in all 4 camera angles
+  const visibleZombies = zombies.filter((z) => {
+    const b = getBuildingAt(z.x, z.y);
+    return !b || revealedMap[b.id];
+  });
+
   const renderables = [];
   const depthOf = (wx, wy) => {
     const r = rotateCoords(wx, wy);
@@ -478,7 +488,7 @@ export function renderFrame(ctx, player, nearbyLootIndex, nearbyDoor, objectiveT
       if (map[y][x] === 2) {
         renderables.push({
           depth: depthOf(x, y),
-          draw: () => drawWall(ctx, x, y, camX, camY, player)
+          draw: () => drawWall(ctx, x, y, camX, camY, player, visibleZombies)
         });
       }
     }
@@ -493,7 +503,6 @@ export function renderFrame(ctx, player, nearbyLootIndex, nearbyDoor, objectiveT
     }
   }
 
-  // Hide Radio Tower if Evac Compound is still unrevealed
   const evacBldg = getBuildingAt(radioTower.x, radioTower.y);
   if (!evacBldg || revealedMap[evacBldg.id]) {
     renderables.push({
@@ -502,7 +511,6 @@ export function renderFrame(ctx, player, nearbyLootIndex, nearbyDoor, objectiveT
     });
   }
 
-  // Hide interior loot until building is revealed
   worldLoot.forEach((item, idx) => {
     const b = getBuildingAt(item.x, item.y);
     if (b && !revealedMap[b.id]) return;
@@ -512,10 +520,7 @@ export function renderFrame(ctx, player, nearbyLootIndex, nearbyDoor, objectiveT
     });
   });
 
-  // Hide interior zombies until building is revealed!
-  zombies.forEach((z) => {
-    const b = getBuildingAt(z.x, z.y);
-    if (b && !revealedMap[b.id]) return;
+  visibleZombies.forEach((z) => {
     renderables.push({
       depth: depthOf(z.x, z.y) + 0.08,
       draw: () => drawZombie(ctx, z, camX, camY)
@@ -530,7 +535,6 @@ export function renderFrame(ctx, player, nearbyLootIndex, nearbyDoor, objectiveT
   renderables.sort((a, b) => a.depth - b.depth);
   for (const item of renderables) item.draw();
 
-  // Draw roof caps over unrevealed buildings so interiors stay mysterious until breached
   for (const b of buildings) {
     if (!revealedMap[b.id]) {
       drawRoofCap(ctx, b, camX, camY);
