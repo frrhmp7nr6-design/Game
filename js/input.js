@@ -8,11 +8,16 @@ export const sticks = {
 export const keys = {};
 export let sprintHeld = false;
 
-export function initInput(canvas, player, { onGrab, onDoor, onRepair, onRotate, onToggleBag }) {
+export function initInput(
+  canvas,
+  player,
+  { onGrab, onDoor, onRepair, onSpecial, onRotate, onToggleBag }
+) {
   const sprintBtn = document.getElementById('sprint-btn');
   const grabBtn = document.getElementById('grab-btn');
   const doorBtn = document.getElementById('door-btn');
   const repairBtn = document.getElementById('repair-btn');
+  const specialBtn = document.getElementById('special-btn');
   const rotateBtn = document.getElementById('rotate-btn');
 
   canvas.addEventListener('touchstart', (e) => {
@@ -94,6 +99,12 @@ export function initInput(canvas, player, { onGrab, onDoor, onRepair, onRotate, 
   });
   repairBtn.addEventListener('click', onRepair);
 
+  specialBtn.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    onSpecial();
+  });
+  specialBtn.addEventListener('click', onSpecial);
+
   rotateBtn.addEventListener('click', onRotate);
 
   window.addEventListener('keydown', (e) => {
@@ -102,6 +113,7 @@ export function initInput(canvas, player, { onGrab, onDoor, onRepair, onRotate, 
     if (k === 'e') onGrab();
     if (k === 'f') onDoor();
     if (k === 'r') onRepair();
+    if (k === 'g') onSpecial();
     if (k === 'q') onRotate();
     if (k === 'b' || k === 'i') onToggleBag();
   });
