@@ -1,4 +1,4 @@
-import { convoyGarage, campUpgrades } from './map.js';
+import { convoyGarage, campUpgrades, rescueEvent } from './map.js';
 import { lootedIds, droppedLoot } from './chunks.js';
 import { WEAPONS } from './combat.js';
 
@@ -10,7 +10,7 @@ export function showToast(msg) {
   toastEl.textContent = msg;
   toastEl.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2400);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2800);
 }
 
 export function applyArchetypeLoadout(player, arch) {
@@ -85,6 +85,33 @@ export function initInventory(player) {
   return { toggleBag };
 }
 
+export function hasPoliceRadio() {
+  return inventory.some((i) => i.type === 'radio' && (i.charges || 0) > 0);
+}
+
+export function scanPoliceRadio(player) {
+  const idx = inventory.findIndex((i) => i.type === 'radio' && (i.charges || 0) > 0);
+  if (idx === -1) {
+    showToast('Need a Police Radio from Rockmart Police Precinct (north on Marble St)!');
+    return false;
+  }
+  if (!rescueEvent.active || rescueEvent.following) {
+    showToast('Radio static... no active distress call on frequency.');
+    return false;
+  }
+
+  inventory[idx].charges -= 1;
+  if (inventory[idx].charges <= 0) {
+    inventory.splice(idx, 1);
+  }
+  renderBag(player);
+
+  // Tune into survivor distress call for 45 seconds!
+  rescueEvent.radioPingTimer = 45;
+  showToast(`📻 DISTRESS CALL (${rescueEvent.name}): "${rescueEvent.callout}"`);
+  return true;
+}
+
 export function openCraftingBench(player) {
   const modal = document.getElementById('craft-modal');
   const grid = document.getElementById('craft-grid');
@@ -114,6 +141,17 @@ export function openCraftingBench(player) {
       }
     },
     {
+      id: 'craft-radio',
+      title: '📻 Rebuilt Police Radio (4 Scrap)',
+      sub: '3 Scans • Receives survivor distress coordinates',
+      cost: 4,
+      action: () => {
+        if (inventory.length >= player.bagCapacity) return showToast('Bag full!');
+        inventory.push({ id: `rad-${Date.now()}`, name: 'Police Radio', type: 'radio', charges: 3, color: '#38bdf8' });
+        return true;
+      }
+    },
+    {
       id: 'craft-axe',
       title: '🪓 Forged Fire Axe (5 Scrap)',
       sub: '58 Melee DMG • Heavy Cleave',
@@ -122,18 +160,6 @@ export function openCraftingBench(player) {
         if (inventory.length >= player.bagCapacity) return showToast('Bag full!');
         inventory.push({ id: `axe-${Date.now()}`, name: 'Fire Axe', type: 'weapon', weaponId: 'axe', color: '#f43f5e' });
         player.equippedWeapon = 'axe';
-        return true;
-      }
-    },
-    {
-      id: 'craft-pistol',
-      title: '🔫 Tactical 9mm Pistol (6 Scrap)',
-      sub: '50 Ranged DMG • 7.8 Tile Reach',
-      cost: 6,
-      action: () => {
-        if (inventory.length >= player.bagCapacity) return showToast('Bag full!');
-        inventory.push({ id: `pis-${Date.now()}`, name: '9mm Pistol', type: 'weapon', weaponId: 'pistol', color: '#94a3b8' });
-        player.equippedWeapon = 'pistol';
         return true;
       }
     },
@@ -174,7 +200,7 @@ export function openCraftingBench(player) {
     btn.addEventListener('click', () => {
       if (r.disabled) return;
       if ((player.scrap || 0) < r.cost) {
-        showToast(`Need ${r.cost} Scrap Credits (kill zombies or load Convoy)!`);
+        showToast(`Need ${r.cost} Scrap Credits!`);
         return;
       }
       if (r.action() === true) {
@@ -223,7 +249,7 @@ export function renderBag(player) {
   if (inventory.length === 0) {
     bagList.insertAdjacentHTML(
       'beforeend',
-      `<div style="color:#64748b; font-size:12px; text-align:center; padding:12px 0;">Bag is empty. Leave the Quarry Hub to scavenge Threat Rings.</div>`
+      `<div style="color:#64748b; font-size:12px; text-align:center; padding:12px 0;">Bag is empty. Head north up S Marble St to scavenge Downtown Rockmart.</div>`
     );
     return;
   }
@@ -235,6 +261,7 @@ export function renderBag(player) {
     let desc = '';
     if (item.type === 'food') desc = `+${item.hunger}% Fullness, +${item.hp}% HP`;
     else if (item.type === 'med') desc = `+${item.hp}% Health`;
+    else if (item.type === 'radio') desc = `${item.charges} Battery Scans • Picks up survivor distress calls`;
     else if (item.type === 'convoy') desc = `+${item.value} Convoy Supply • Load at Quarry Garage`;
     else if (item.type === 'tool')
       desc = item.infinite ? 'Reusable Scavenger Tool' : 'Opens locked doors silently';
@@ -245,13 +272,29 @@ export function renderBag(player) {
 
     const isEquipped = item.type === 'weapon' && player.equippedWeapon === item.weaponId;
     const canUse =
-      item.type === 'food' || item.type === 'med' || (item.type === 'weapon' && !isEquipped);
-    const useLabel = item.type === 'med' ? 'HEAL' : item.type === 'weapon' ? 'EQUIP' : 'EAT';
+      item.type === 'food' ||
+      item.type === 'med' ||
+      item.type === 'radio' ||
+      (item.type === 'weapon' && !isEquipped);
+    const useLabel =
+      item.type === 'med'
+        ? 'HEAL'
+        : item.type === 'radio'
+        ? 'SCAN'
+        : item.type === 'weapon'
+        ? 'EQUIP'
+        : 'EAT';
 
     row.innerHTML = `
       <div class="bag-item-info">
         <span class="bag-item-name" style="${
-          item.type === 'convoy' ? 'color:#22d3ee;' : item.type === 'tool' ? 'color:#fbbf24;' : ''
+          item.type === 'convoy'
+            ? 'color:#22d3ee;'
+            : item.type === 'radio'
+            ? 'color:#38bdf8;'
+            : item.type === 'tool'
+            ? 'color:#fbbf24;'
+            : ''
         }">${item.name} ${isEquipped ? '<span style="color:#38bdf8;font-size:10px;">(ACTIVE)</span>' : ''}</span>
         <span class="bag-item-sub">${desc}</span>
       </div>
@@ -299,7 +342,9 @@ export function grabLootItem(player, item, activeChunks) {
   inventory.push(item);
   removeFromWorld(item, activeChunks);
 
-  if (item.type === 'convoy') {
+  if (item.type === 'radio') {
+    showToast('📻 Picked up Police Radio! Tap SCAN in your bag to receive distress calls.');
+  } else if (item.type === 'convoy') {
     showToast(`🚛 Stashed ${item.name} (+${item.value} Convoy)!`);
   } else if (item.type === 'weapon' && player.equippedWeapon === 'fists') {
     player.equippedWeapon = item.weaponId;
@@ -360,7 +405,6 @@ export function deliverConvoySupplies(player) {
     const engineerBonus = convoyGarage.specialists > 0 ? 1 : 0;
     const totalAdded = addedPoints + engineerBonus;
     convoyGarage.points = Math.min(convoyGarage.targetPoints, convoyGarage.points + totalAdded);
-    // Reward Scrap Credits for every delivery
     player.scrap = (player.scrap || 0) + totalAdded * 2;
     renderBag(player);
     return totalAdded;
@@ -371,6 +415,11 @@ export function deliverConvoySupplies(player) {
 function useBagItem(player, idx) {
   const item = inventory[idx];
   if (!item || player.dead) return;
+
+  if (item.type === 'radio') {
+    scanPoliceRadio(player);
+    return;
+  }
 
   if (item.type === 'weapon') {
     player.equippedWeapon = item.weaponId;
