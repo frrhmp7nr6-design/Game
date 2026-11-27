@@ -1,5 +1,6 @@
 import { worldToScreen, isTileBlocked, CENTER } from './map.js';
 import { killedZombieIds } from './chunks.js';
+import { broadcastWorldEvent } from './net.js';
 
 export const WEAPONS = {
   fists: {
@@ -61,7 +62,6 @@ export function hasLineOfSight(x1, y1, x2, y2, activeChunks) {
 }
 
 function canZombieWalkTo(nx, ny, activeChunks) {
-  // Prevent zombies from wandering into the fenced 128x128 Quarry Safe Hub (448..576)
   if (Math.abs(nx - CENTER) <= 64 && Math.abs(ny - CENTER) <= 64) return false;
 
   const r = 0.25;
@@ -102,7 +102,6 @@ export function updateCombat(dt, player, activeChunks) {
 
   const activeZombies = getActiveZombies(activeChunks);
 
-  // Auto-attack closest zombie in vision cone
   if (player.attackTimer === 0 && player.stamina >= weapon.staminaCost) {
     let bestTarget = null;
     let bestDist = Infinity;
@@ -157,7 +156,6 @@ export function updateCombat(dt, player, activeChunks) {
     }
   }
 
-  // Update active zombies
   for (const c of activeChunks) {
     for (let i = c.zombies.length - 1; i >= 0; i--) {
       const z = c.zombies[i];
@@ -165,8 +163,11 @@ export function updateCombat(dt, player, activeChunks) {
       z.attackCd = Math.max(0, z.attackCd - dt);
       z.lungeTimer = Math.max(0, z.lungeTimer - dt);
 
-      if (z.hp <= 0) {
-        killedZombieIds.add(z.id);
+      if (z.hp <= 0 || killedZombieIds.has(z.id)) {
+        if (!killedZombieIds.has(z.id)) {
+          killedZombieIds.add(z.id);
+          broadcastWorldEvent({ kind: 'zkill', id: z.id });
+        }
         c.zombies.splice(i, 1);
         continue;
       }
