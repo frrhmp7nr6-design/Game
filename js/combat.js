@@ -8,31 +8,31 @@ export const WEAPONS = {
     name: 'Fists',
     type: 'melee',
     damage: 20,
-    range: 1.9,
-    arc: 1.05,
-    cooldown: 0.4,
-    staminaCost: 2,
-    knockback: 0.42
+    range: 1.15,
+    arc: 0.9,
+    cooldown: 0.42,
+    staminaCost: 3,
+    knockback: 0.35
   },
   crowbar: {
     name: 'Crowbar',
     type: 'melee',
     damage: 42,
-    range: 2.25,
-    arc: 1.15,
-    cooldown: 0.48,
+    range: 1.42,
+    arc: 0.95,
+    cooldown: 0.5,
     staminaCost: 5,
-    knockback: 0.72
+    knockback: 0.62
   },
   axe: {
     name: 'Fire Axe',
     type: 'melee',
     damage: 72,
-    range: 2.45,
-    arc: 1.2,
-    cooldown: 0.65,
+    range: 1.58,
+    arc: 1.0,
+    cooldown: 0.68,
     staminaCost: 9,
-    knockback: 0.95
+    knockback: 0.85
   },
   pistol: {
     name: '9mm Pistol',
@@ -66,7 +66,6 @@ export function getActiveZombies(activeChunks) {
   return list;
 }
 
-// Exact segment-vs-edge check so open doorways never false-block attacks
 function isSightClear(x1, y1, x2, y2, activeChunks) {
   const dist = Math.hypot(x2 - x1, y2 - y1);
   if (dist < 0.45) return true;
@@ -82,7 +81,6 @@ function isSightClear(x1, y1, x2, y2, activeChunks) {
     return false;
   };
 
-  // Check every integer X grid line crossed between x1 and x2
   const minGx = Math.floor(Math.min(x1, x2)) + 1;
   const maxGx = Math.floor(Math.max(x1, x2));
   for (let gx = minGx; gx <= maxGx; gx++) {
@@ -91,7 +89,6 @@ function isSightClear(x1, y1, x2, y2, activeChunks) {
     if (isBlocked(`V:${gx},${Math.floor(iy)}`)) return false;
   }
 
-  // Check every integer Y grid line crossed between y1 and y2
   const minGy = Math.floor(Math.min(y1, y2)) + 1;
   const maxGy = Math.floor(Math.max(y1, y2));
   for (let gy = minGy; gy <= maxGy; gy++) {
@@ -121,7 +118,7 @@ function getTargetsInCone(player, activeChunks, weapon, effectiveRange) {
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
 
-      const withinCone = Math.abs(diff) <= weapon.arc || (dist < 1.25 && Math.abs(diff) <= 1.45);
+      const withinCone = Math.abs(diff) <= weapon.arc || (dist < 0.95 && Math.abs(diff) <= 1.25);
       if (!withinCone) continue;
 
       if (!isSightClear(player.x, player.y, z.x, z.y, activeChunks)) continue;
@@ -154,7 +151,9 @@ export function performAttack(player, activeChunks, isAuto = false) {
 
   const dmgMult = isBruiserMelee ? 1.35 : isMarksmanRanged ? 1.25 : 1.0;
   const kbMult = isBruiserMelee ? 1.4 : 1.0;
-  const hitTargets = weapon.type === 'ranged' ? candidates.slice(0, 1) : candidates;
+
+  // Single-target strike: melee and ranged both hit only the closest enemy in the cone
+  const hitTargets = candidates.slice(0, 1);
 
   if (weapon.type === 'ranged') {
     const endX =
@@ -195,6 +194,8 @@ export function performAttack(player, activeChunks, isAuto = false) {
     z.hitFlash = 0.16;
     z.aggro = true;
     z.lostSightTimer = 0;
+    z.lastKnownX = player.x;
+    z.lastKnownY = player.y;
 
     const ang = Math.atan2(z.y - player.y, z.x - player.x);
     const kb = weapon.knockback * kbMult;
@@ -228,7 +229,6 @@ export function updateCombat(dt, player, activeChunks) {
 
   const playerInSafeHub = isInsideQuarryHub(player.x, player.y);
 
-  // Auto-attack closest zombie(s) whenever aim cone faces a target in range & clear sight
   if (!playerInSafeHub && !player.dead && player.attackTimer === 0) {
     performAttack(player, activeChunks, true);
   }
@@ -268,7 +268,7 @@ export function updateCombat(dt, player, activeChunks) {
       const dist = Math.hypot(dx, dy);
       const canSeePlayer =
         !playerInSafeHub &&
-        dist < 14.5 &&
+        dist < 15.5 &&
         isSightClear(z.x, z.y, player.x, player.y, activeChunks);
 
       if (playerInSafeHub) {
@@ -278,18 +278,27 @@ export function updateCombat(dt, player, activeChunks) {
         if (dist < sightRange || z.aggro) {
           z.aggro = true;
           z.lostSightTimer = 0;
+          z.lastKnownX = player.x;
+          z.lastKnownY = player.y;
         }
       } else if (z.aggro) {
+        // Keep pursuing toward player's last known position/doorway for 7.5s before giving up
         z.lostSightTimer = (z.lostSightTimer || 0) + dt;
-        if (z.lostSightTimer >= 2.5) {
+        if (z.lostSightTimer >= 7.5) {
           z.aggro = false;
           z.lostSightTimer = 0;
         }
       }
 
       if (z.aggro && !playerInSafeHub) {
-        if (dist > 0.72) {
-          const ang = Math.atan2(dy, dx);
+        const goalX = canSeePlayer ? player.x : (z.lastKnownX ?? player.x);
+        const goalY = canSeePlayer ? player.y : (z.lastKnownY ?? player.y);
+        const gdx = goalX - z.x;
+        const gdy = goalY - z.y;
+        const gDist = Math.hypot(gdx, gdy);
+
+        if (gDist > 0.55) {
+          const ang = Math.atan2(gdy, gdx);
           z.facing = ang;
           z.walkPhase = (z.walkPhase || 0) + dt * z.speed * 5.2;
 
@@ -297,7 +306,7 @@ export function updateCombat(dt, player, activeChunks) {
           const ny = z.y + Math.sin(ang) * z.speed * dt;
           if (!isInsideQuarryHub(nx, z.y) && canWalkTo(nx, z.y, 0.26, activeChunks)) z.x = nx;
           if (!isInsideQuarryHub(z.x, ny) && canWalkTo(z.x, ny, 0.26, activeChunks)) z.y = ny;
-        } else if (z.attackCd === 0 && canSeePlayer) {
+        } else if (dist <= 0.85 && z.attackCd === 0 && canSeePlayer) {
           const hitDmg = z.dmg || 12;
           player.hp = Math.max(0, player.hp - hitDmg);
           player.hurtFlash = 0.35;
