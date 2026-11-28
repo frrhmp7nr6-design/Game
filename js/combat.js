@@ -1,6 +1,6 @@
-import { canWalkTo } from './map.js';
+import { canWalkTo, hasLineOfSight, worldToScreen } from './map.js';
 import { isInsideQuarryHub, killedZombieIds } from './chunks.js';
-import { showToast } from './inventory.js';
+import { dropHeavyCrate, showToast } from './inventory.js';
 import { broadcastWorldEvent } from './net.js';
 
 export const WEAPONS = {
@@ -8,8 +8,8 @@ export const WEAPONS = {
     name: 'Fists',
     type: 'melee',
     damage: 16,
-    range: 1.35,
-    arc: 0.72,
+    range: 1.55,
+    arc: 0.78,
     cooldown: 0.42,
     staminaCost: 4,
     knockback: 0.35
@@ -18,8 +18,8 @@ export const WEAPONS = {
     name: 'Crowbar',
     type: 'melee',
     damage: 38,
-    range: 1.75,
-    arc: 0.85,
+    range: 1.95,
+    arc: 0.88,
     cooldown: 0.52,
     staminaCost: 8,
     knockback: 0.65
@@ -28,8 +28,8 @@ export const WEAPONS = {
     name: 'Fire Axe',
     type: 'melee',
     damage: 68,
-    range: 1.95,
-    arc: 0.9,
+    range: 2.15,
+    arc: 0.92,
     cooldown: 0.72,
     staminaCost: 14,
     knockback: 0.9
@@ -39,7 +39,7 @@ export const WEAPONS = {
     type: 'ranged',
     damage: 48,
     range: 10.5,
-    arc: 0.22,
+    arc: 0.24,
     cooldown: 0.38,
     staminaCost: 2,
     knockback: 0.28
@@ -49,7 +49,7 @@ export const WEAPONS = {
     type: 'ranged',
     damage: 115,
     range: 14.5,
-    arc: 0.14,
+    arc: 0.16,
     cooldown: 0.78,
     staminaCost: 3,
     knockback: 0.55
@@ -69,8 +69,7 @@ export function getActiveZombies(activeChunks) {
 export function performAttack(player, activeChunks) {
   if (player.dead || player.attackTimer > 0) return;
   if (player.carryingCrate) {
-    showToast('Drop Heavy Crate before attacking!');
-    return;
+    dropHeavyCrate(player);
   }
 
   const weapon = WEAPONS[player.equippedWeapon] || WEAPONS.fists;
@@ -89,6 +88,7 @@ export function performAttack(player, activeChunks) {
   const effectiveRange = isMarksmanRanged ? weapon.range * 1.25 : weapon.range;
   const kbMult = isBruiserMelee ? 1.4 : 1.0;
 
+  const pScreen = worldToScreen(player.x, player.y, 0, 0);
   const candidates = [];
   for (const c of activeChunks) {
     for (let i = 0; i < c.zombies.length; i++) {
@@ -98,12 +98,15 @@ export function performAttack(player, activeChunks) {
       const dist = Math.hypot(dx, dy);
       if (dist > effectiveRange) continue;
 
-      const screenAng = Math.atan2((dx + dy) * 0.5, dx - dy);
+      const zScreen = worldToScreen(z.x, z.y, 0, 0);
+      const screenAng = Math.atan2(zScreen.y - pScreen.y, zScreen.x - pScreen.x);
       let diff = screenAng - player.angle;
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
 
       if (Math.abs(diff) <= weapon.arc) {
+        // Prevent striking or shooting zombies through solid walls or closed doors
+        if (!hasLineOfSight(player.x, player.y, z.x, z.y, activeChunks)) continue;
         candidates.push({ chunk: c, index: i, z, dist });
       }
     }
@@ -196,7 +199,7 @@ export function updateCombat(dt, player, activeChunks) {
 
       if (playerInSafeHub) {
         z.aggro = false;
-      } else if (dist < sightRange) {
+      } else if (dist < sightRange && hasLineOfSight(z.x, z.y, player.x, player.y, activeChunks)) {
         z.aggro = true;
       } else if (dist > 14.5) {
         z.aggro = false;
@@ -212,7 +215,7 @@ export function updateCombat(dt, player, activeChunks) {
           const ny = z.y + Math.sin(ang) * z.speed * dt;
           if (!isInsideQuarryHub(nx, z.y) && canWalkTo(nx, z.y, 0.26, activeChunks)) z.x = nx;
           if (!isInsideQuarryHub(z.x, ny) && canWalkTo(z.x, ny, 0.26, activeChunks)) z.y = ny;
-        } else if (z.attackCd === 0) {
+        } else if (z.attackCd === 0 && hasLineOfSight(z.x, z.y, player.x, player.y, activeChunks)) {
           const hitDmg = z.dmg || 12;
           player.hp = Math.max(0, player.hp - hitDmg);
           player.hurtFlash = 0.35;
