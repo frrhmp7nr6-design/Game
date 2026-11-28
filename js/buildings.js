@@ -131,11 +131,16 @@ function buildFloorLevel(chunk, bldgId, category, floorNum, rooms, doorSpecs, st
         if (floorNum === 0) chunk.doors.push(doorObj);
         chunk.edgeDoors.set(eKey, doorObj);
       } else {
-        // Windows appear on all exterior walls (interior + exterior faces); awnings only draw on S/E in render_buildings.js
         const hasWindow =
           isExterior &&
           floorNum >= 0 &&
           ((orient === 'H' && wx % 2 === 0) || (orient === 'V' && wy % 2 === 1));
+        // Only select storefront display windows on the South street front get awnings
+        const hasAwning =
+          hasWindow &&
+          category === 'commercial' &&
+          s.side === 'S' &&
+          wx % 4 === 0;
         const isBoarded = hasWindow && doorSpecs[0]?.state === 'barricaded';
         const wallObj = {
           key: eKey,
@@ -147,6 +152,7 @@ function buildFloorLevel(chunk, bldgId, category, floorNum, rooms, doorSpecs, st
           isExterior,
           isBasement: floorNum < 0,
           hasWindow,
+          hasAwning,
           isBoarded,
           buildingId: bldgId
         };
@@ -259,6 +265,14 @@ export function stampThinWallBuilding(chunk, config) {
       ? 'gable'
       : 'hip';
 
+  const parapetPresets = [
+    ['N', 'W', 'S'],
+    ['N', 'W', 'E'],
+    ['N', 'W'],
+    ['W', 'S', 'E']
+  ];
+  const parapetSides = parapetPresets[Math.floor(seed * 53) % parapetPresets.length];
+
   const floors = {};
   floors[0] = buildFloorLevel(chunk, id, category, 0, rooms, doorSpecs, groundStairs);
 
@@ -309,6 +323,7 @@ export function stampThinWallBuilding(chunk, config) {
     stairs: g.stairs,
     palette,
     roofStyle,
+    parapetSides,
     porchRect,
     defaultRevealed
   };
@@ -513,55 +528,4 @@ export function generateFloorplanBuilding(chunk, opts) {
     ];
     stampThinWallBuilding(chunk, {
       id,
-      name: `${name} (4BR/3BA)`,
-      category: 'house',
-      rooms: rooms1F,
-      doorSpecs: doorSpecs1F,
-      seed,
-      porchRect: { x1: bx + 5, y1: by + 12, x2: bx + 9, y2: by + 12 }
-    });
-    return {
-      lootSpots: [
-        { x: bx + 2.5, y: by + 1.5, room: 'bedroom', floor: 0 },
-        { x: bx + 12.5, y: by + 8.5, room: 'garage', floor: 0 }
-      ],
-      zX: bx + 7.5,
-      zY: by + 9.5
-    };
-  }
-
-  // 3BR/2BA Suburban Family Home + Attached Garage
-  const rooms1F = [
-    { name: 'Living Room', type: 'living', x1: bx, y1: by + 4, x2: bx + 4, y2: by + 8 },
-    { name: 'Kitchen & Dining', type: 'kitchen', x1: bx + 5, y1: by + 4, x2: bx + 7, y2: by + 8 },
-    { name: 'Master Bedroom', type: 'bedroom', x1: bx, y1: by, x2: bx + 4, y2: by + 3 },
-    { name: 'Bath', type: 'bathroom', x1: bx + 5, y1: by, x2: bx + 7, y2: by + 3 },
-    { name: 'Garage', type: 'garage', x1: bx + 8, y1: by + 3, x2: bx + 10, y2: by + 8 }
-  ];
-  const doorSpecs1F = [
-    { x: bx + 2, y: by + 8, side: 'S', state: doorState, interior: false },
-    { x: bx + 9, y: by + 8, side: 'S', state: 'locked', interior: false },
-    { x: bx + 4, y: by + 6, side: 'E', state: 'unlocked', interior: true },
-    { x: bx + 2, y: by + 3, side: 'S', state: 'unlocked', interior: true },
-    { x: bx + 6, y: by + 3, side: 'S', state: 'unlocked', interior: true },
-    { x: bx + 8, y: by + 6, side: 'W', state: 'unlocked', interior: true }
-  ];
-  stampThinWallBuilding(chunk, {
-    id,
-    name: `${name} (3BR/2BA)`,
-    category: 'house',
-    rooms: rooms1F,
-    doorSpecs: doorSpecs1F,
-    seed,
-    porchRect: { x1: bx + 1, y1: by + 9, x2: bx + 3, y2: by + 9 }
-  });
-
-  return {
-    lootSpots: [
-      { x: bx + 2.5, y: by + 1.5, room: 'bedroom', floor: 0 },
-      { x: bx + 9.5, y: by + 6.5, room: 'garage', floor: 0 }
-    ],
-    zX: bx + 3.5,
-    zY: by + 7.5
-  };
-}
+      
