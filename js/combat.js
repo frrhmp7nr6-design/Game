@@ -7,50 +7,50 @@ export const WEAPONS = {
   fists: {
     name: 'Fists',
     type: 'melee',
-    damage: 16,
-    range: 1.55,
-    arc: 0.78,
-    cooldown: 0.42,
-    staminaCost: 4,
-    knockback: 0.35
+    damage: 18,
+    range: 1.75,
+    arc: 0.95,
+    cooldown: 0.38,
+    staminaCost: 3,
+    knockback: 0.4
   },
   crowbar: {
     name: 'Crowbar',
     type: 'melee',
-    damage: 38,
-    range: 1.95,
-    arc: 0.88,
-    cooldown: 0.52,
-    staminaCost: 8,
-    knockback: 0.65
+    damage: 40,
+    range: 2.1,
+    arc: 1.05,
+    cooldown: 0.48,
+    staminaCost: 7,
+    knockback: 0.7
   },
   axe: {
     name: 'Fire Axe',
     type: 'melee',
-    damage: 68,
-    range: 2.15,
-    arc: 0.92,
-    cooldown: 0.72,
-    staminaCost: 14,
-    knockback: 0.9
+    damage: 70,
+    range: 2.3,
+    arc: 1.1,
+    cooldown: 0.68,
+    staminaCost: 12,
+    knockback: 0.95
   },
   pistol: {
     name: '9mm Pistol',
     type: 'ranged',
-    damage: 48,
-    range: 10.5,
-    arc: 0.24,
-    cooldown: 0.38,
+    damage: 50,
+    range: 11.0,
+    arc: 0.28,
+    cooldown: 0.36,
     staminaCost: 2,
-    knockback: 0.28
+    knockback: 0.3
   },
   rifle: {
     name: 'Hunting Rifle',
     type: 'ranged',
     damage: 115,
-    range: 14.5,
-    arc: 0.16,
-    cooldown: 0.78,
+    range: 15.0,
+    arc: 0.18,
+    cooldown: 0.75,
     staminaCost: 3,
     knockback: 0.55
   }
@@ -90,6 +90,7 @@ export function performAttack(player, activeChunks) {
 
   const pScreen = worldToScreen(player.x, player.y, 0, 0);
   const candidates = [];
+
   for (const c of activeChunks) {
     for (let i = 0; i < c.zombies.length; i++) {
       const z = c.zombies[i];
@@ -104,11 +105,14 @@ export function performAttack(player, activeChunks) {
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
 
-      if (Math.abs(diff) <= weapon.arc) {
-        // Prevent striking or shooting zombies through solid walls or closed doors
-        if (!hasLineOfSight(player.x, player.y, z.x, z.y, activeChunks)) continue;
-        candidates.push({ chunk: c, index: i, z, dist });
-      }
+      // Point-blank enemies (< 1.15 tiles) in front of the player always register if line-of-sight is clear
+      const withinCone = Math.abs(diff) <= weapon.arc || (dist < 1.15 && Math.abs(diff) <= 1.35);
+      if (!withinCone) continue;
+
+      // Prevent striking or shooting zombies through walls or closed doors
+      if (!hasLineOfSight(player.x, player.y, z.x, z.y, activeChunks)) continue;
+
+      candidates.push({ chunk: c, index: i, z, dist });
     }
   }
 
@@ -153,6 +157,7 @@ export function performAttack(player, activeChunks) {
     z.hp -= finalDmg;
     z.hitFlash = 0.15;
     z.aggro = true;
+    z.lostSightTimer = 0;
 
     const ang = Math.atan2(z.y - player.y, z.x - player.x);
     const kb = weapon.knockback * kbMult;
@@ -186,6 +191,28 @@ export function updateCombat(dt, player, activeChunks) {
 
   const playerInSafeHub = isInsideQuarryHub(player.x, player.y);
   const sightRange = player.isSprinting ? 10.5 : 7.0;
+  const allZombies = getActiveZombies(activeChunks);
+
+  // Soft zombie-to-zombie separation so hordes never stack on top of one another
+  for (let i = 0; i < allZombies.length; i++) {
+    const a = allZombies[i];
+    for (let j = i + 1; j < allZombies.length; j++) {
+      const b = allZombies[j];
+      const dx = a.x - b.x;
+      const dy = a.y - b.y;
+      const d = Math.hypot(dx, dy);
+      const minSep = 0.68;
+      if (d > 0.001 && d < minSep) {
+        const push = ((minSep - d) / minSep) * 1.8 * dt;
+        const ux = dx / d;
+        const uy = dy / d;
+        if (canWalkTo(a.x + ux * push, a.y, 0.26, activeChunks)) a.x += ux * push;
+        if (canWalkTo(a.x, a.y + uy * push, 0.26, activeChunks)) a.y += uy * push;
+        if (canWalkTo(b.x - ux * push, b.y, 0.26, activeChunks)) b.x -= ux * push;
+        if (canWalkTo(b.x, b.y - uy * push, 0.26, activeChunks)) b.y -= uy * push;
+      }
+    }
+  }
 
   for (const c of activeChunks) {
     for (const z of c.zombies) {
@@ -196,13 +223,26 @@ export function updateCombat(dt, player, activeChunks) {
       const dx = player.x - z.x;
       const dy = player.y - z.y;
       const dist = Math.hypot(dx, dy);
+      const canSeePlayer =
+        !playerInSafeHub &&
+        dist < 14.5 &&
+        hasLineOfSight(z.x, z.y, player.x, player.y, activeChunks);
 
       if (playerInSafeHub) {
         z.aggro = false;
-      } else if (dist < sightRange && hasLineOfSight(z.x, z.y, player.x, player.y, activeChunks)) {
-        z.aggro = true;
-      } else if (dist > 14.5) {
-        z.aggro = false;
+        z.lostSightTimer = 0;
+      } else if (canSeePlayer) {
+        if (dist < sightRange || z.aggro) {
+          z.aggro = true;
+          z.lostSightTimer = 0;
+        }
+      } else if (z.aggro) {
+        // Player broke line-of-sight (e.g., entered a room and closed the door)
+        z.lostSightTimer = (z.lostSightTimer || 0) + dt;
+        if (z.lostSightTimer >= 2.5) {
+          z.aggro = false;
+          z.lostSightTimer = 0;
+        }
       }
 
       if (z.aggro && !playerInSafeHub) {
@@ -215,7 +255,7 @@ export function updateCombat(dt, player, activeChunks) {
           const ny = z.y + Math.sin(ang) * z.speed * dt;
           if (!isInsideQuarryHub(nx, z.y) && canWalkTo(nx, z.y, 0.26, activeChunks)) z.x = nx;
           if (!isInsideQuarryHub(z.x, ny) && canWalkTo(z.x, ny, 0.26, activeChunks)) z.y = ny;
-        } else if (z.attackCd === 0 && hasLineOfSight(z.x, z.y, player.x, player.y, activeChunks)) {
+        } else if (z.attackCd === 0 && canSeePlayer) {
           const hitDmg = z.dmg || 12;
           player.hp = Math.max(0, player.hp - hitDmg);
           player.hurtFlash = 0.35;
