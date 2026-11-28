@@ -1,3 +1,5 @@
+import { applyEditorOverridesToChunk } from './editor.js';
+
 export const CHUNK_SIZE = 32;
 export const WORLD_CHUNKS = 64; // 64 x 64 chunks = 2048 x 2048 tiles
 export const MAP_SIZE = CHUNK_SIZE * WORLD_CHUNKS; // 2048
@@ -528,7 +530,6 @@ function populateEnvironmentProps(chunk, district) {
     return false;
   };
 
-  // 1. Roadside streetlights (urban/suburbs), parked cars, and rural split-rail fences
   for (let ly = 2; ly < CHUNK_SIZE - 2; ly += 4) {
     const wy = baseY + ly;
     for (let lx = 2; lx < CHUNK_SIZE - 2; lx += 4) {
@@ -568,7 +569,6 @@ function populateEnvironmentProps(chunk, district) {
     }
   }
 
-  // 2. Trees, bushes & boulders scaled by biome density
   const treeAttempts =
     district === 'wilderness'
       ? 26
@@ -587,7 +587,6 @@ function populateEnvironmentProps(chunk, district) {
     const wy = baseY + ly + 0.5;
     if (isOccupied(wx, wy)) continue;
 
-    // Avoid blocking building doors
     let nearDoor = false;
     for (const d of chunk.doors) {
       if (Math.hypot(d.x + 0.5 - wx, d.y + 0.5 - wy) < 3.0) {
@@ -768,6 +767,7 @@ function generateChunk(cx, cy) {
     addChunkZombie(chunk, 'z-pd-1', 1123.5, 912.5, 2, false);
     addChunkZombie(chunk, 'z-pd-2', 1129.5, 909.5, 2, false);
     populateEnvironmentProps(chunk, 'downtown');
+    applyEditorOverridesToChunk(chunk);
     return chunk;
   }
 
@@ -922,6 +922,7 @@ function generateChunk(cx, cy) {
   }
 
   populateEnvironmentProps(chunk, district);
+  applyEditorOverridesToChunk(chunk);
   return chunk;
 }
 
