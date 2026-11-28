@@ -18,84 +18,17 @@ import {
   getNearbyLootList
 } from './map.js';
 import { getTileAt, getRoadKindAt, getRiverCenterX } from './chunks.js';
+import {
+  drawExtrudedBlock,
+  drawIsoBox,
+  drawThinWall,
+  drawEdgeDoor,
+  drawInteriorProp,
+  drawRoofCap
+} from './render_buildings.js';
 import { sticks, MAX_STICK_R } from './input.js';
 import { getActiveZombies, fxList, WEAPONS } from './combat.js';
 import { remotePlayers } from './net.js';
-
-function drawExtrudedBlock(ctx, wx, wy, camX, camY, h, colors, alpha = 1) {
-  const p = worldToScreen(wx, wy, camX, camY);
-  ctx.save();
-  ctx.globalAlpha = alpha;
-
-  ctx.fillStyle = colors.left;
-  ctx.beginPath();
-  ctx.moveTo(p.x - TILE_W / 2, p.y + TILE_H / 2);
-  ctx.lineTo(p.x, p.y + TILE_H);
-  ctx.lineTo(p.x, p.y + TILE_H - h);
-  ctx.lineTo(p.x - TILE_W / 2, p.y + TILE_H / 2 - h);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.fillStyle = colors.right;
-  ctx.beginPath();
-  ctx.moveTo(p.x + TILE_W / 2, p.y + TILE_H / 2);
-  ctx.lineTo(p.x, p.y + TILE_H);
-  ctx.lineTo(p.x, p.y + TILE_H - h);
-  ctx.lineTo(p.x + TILE_W / 2, p.y + TILE_H / 2 - h);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.fillStyle = colors.top;
-  ctx.beginPath();
-  ctx.moveTo(p.x, p.y - h);
-  ctx.lineTo(p.x + TILE_W / 2, p.y + TILE_H / 2 - h);
-  ctx.lineTo(p.x, p.y + TILE_H - h);
-  ctx.lineTo(p.x - TILE_W / 2, p.y + TILE_H / 2 - h);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.restore();
-}
-
-function drawIsoBox(ctx, x1, y1, x2, y2, baseZ, height, camX, camY, colors) {
-  const topN = worldToScreen(x1, y1, camX, camY);
-  const topE = worldToScreen(x2, y1, camX, camY);
-  const topS = worldToScreen(x2, y2, camX, camY);
-  const topW = worldToScreen(x1, y2, camX, camY);
-
-  const zTop = baseZ + height;
-  const zBot = baseZ;
-
-  ctx.fillStyle = colors.left;
-  ctx.beginPath();
-  ctx.moveTo(topW.x, topW.y - zTop);
-  ctx.lineTo(topS.x, topS.y - zTop);
-  ctx.lineTo(topS.x, topS.y - zBot);
-  ctx.lineTo(topW.x, topW.y - zBot);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.fillStyle = colors.right;
-  ctx.beginPath();
-  ctx.moveTo(topS.x, topS.y - zTop);
-  ctx.lineTo(topE.x, topE.y - zTop);
-  ctx.lineTo(topE.x, topE.y - zBot);
-  ctx.lineTo(topS.x, topS.y - zBot);
-  ctx.closePath();
-  ctx.fill();
-
-  ctx.fillStyle = colors.top;
-  ctx.beginPath();
-  ctx.moveTo(topN.x, topN.y - zTop);
-  ctx.lineTo(topE.x, topE.y - zTop);
-  ctx.lineTo(topS.x, topS.y - zTop);
-  ctx.lineTo(topW.x, topW.y - zTop);
-  ctx.closePath();
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(15, 23, 42, 0.55)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-}
 
 function drawTile(ctx, wx, wy, camX, camY, type, roadKind, isHiddenInterior) {
   const p = worldToScreen(wx, wy, camX, camY);
@@ -185,20 +118,15 @@ function drawEnvProp(ctx, prop, camX, camY, player) {
 
   const s = prop.scale || 1;
 
-  // Fade tall trees ONLY when they are strictly on the camera side of the player (in front of player)
   let alpha = 1;
   if (prop.kind === 'pine' || prop.kind === 'oak') {
     const propRot = rotateCoords(prop.x, prop.y);
     const playerRot = rotateCoords(player.x, player.y);
-    const propDepth = propRot.rx + propRot.ry;
-    const playerDepth = playerRot.rx + playerRot.ry;
-    if (propDepth > playerDepth + 0.35) {
+    if (propRot.rx + propRot.ry > playerRot.rx + playerRot.ry + 0.35) {
       const pScreen = worldToScreen(player.x, player.y, camX, camY);
       const dy = pos.y - pScreen.y;
       const dx = Math.abs(pos.x - pScreen.x);
-      if (dy > 6 && dy < 72 && dx < 32) {
-        alpha = 0.34;
-      }
+      if (dy > 6 && dy < 72 && dx < 32) alpha = 0.34;
     }
   }
 
@@ -334,349 +262,6 @@ function drawEnvProp(ctx, prop, camX, camY, player) {
   }
 
   ctx.restore();
-}
-
-// Returns true ONLY when the wall tile is strictly on the camera side (greater isometric depth)
-// and visually overlaps the unit's sprite in screen space.
-function isWallOccludingUnit(wallWx, wallWy, wallScreen, unitWx, unitWy, unitScreen) {
-  const wallRot = rotateCoords(wallWx + 0.5, wallWy + 0.5);
-  const unitRot = rotateCoords(unitWx, unitWy);
-  const wallDepth = wallRot.rx + wallRot.ry;
-  const unitDepth = unitRot.rx + unitRot.ry;
-
-  // Must be strictly closer to the camera than the unit (never fade walls behind the unit)
-  if (wallDepth <= unitDepth + 0.35) return false;
-
-  const wallBottomY = wallScreen.y + TILE_H;
-  const dy = wallBottomY - unitScreen.y;
-  const dx = Math.abs(wallScreen.x - unitScreen.x);
-  return dy > 10 && dy < 60 && dx < 38;
-}
-
-function drawWall(ctx, wx, wy, camX, camY, player, visibleZombies, building, wallMeta) {
-  const p = worldToScreen(wx, wy, camX, camY);
-  if (
-    p.x < -TILE_W ||
-    p.x > window.innerWidth + TILE_W ||
-    p.y < -TILE_H * 2 ||
-    p.y > window.innerHeight + TILE_H
-  ) {
-    return;
-  }
-
-  const playerScreen = worldToScreen(player.x, player.y, camX, camY);
-  let occluding = isWallOccludingUnit(wx, wy, p, player.x, player.y, playerScreen);
-
-  if (!occluding) {
-    for (const z of visibleZombies) {
-      const zScreen = worldToScreen(z.x, z.y, camX, camY);
-      if (isWallOccludingUnit(wx, wy, p, z.x, z.y, zScreen)) {
-        occluding = true;
-        break;
-      }
-    }
-  }
-
-  const pal = building?.palette;
-  const colors = pal
-    ? { left: pal.wallL, right: pal.wallR, top: pal.trim || '#64748b' }
-    : { left: '#475569', right: '#334155', top: '#64748b' };
-
-  const alpha = occluding ? 0.32 : 1;
-  const h = 42;
-  drawExtrudedBlock(ctx, wx, wy, camX, camY, h, colors, alpha);
-
-  if (wallMeta && wallMeta.hasWindow && !occluding) {
-    ctx.save();
-    ctx.globalAlpha = 0.92;
-    const winColor = wallMeta.isBoarded ? '#92400e' : '#38bdf8';
-
-    if (wallMeta.faceSouth) {
-      ctx.fillStyle = '#0f172a';
-      ctx.beginPath();
-      ctx.moveTo(p.x - 24, p.y + 12);
-      ctx.lineTo(p.x - 8, p.y + 20);
-      ctx.lineTo(p.x - 8, p.y + 4);
-      ctx.lineTo(p.x - 24, p.y - 4);
-      ctx.closePath();
-      ctx.fill();
-
-      ctx.fillStyle = winColor;
-      ctx.beginPath();
-      ctx.moveTo(p.x - 22, p.y + 11);
-      ctx.lineTo(p.x - 10, p.y + 17);
-      ctx.lineTo(p.x - 10, p.y + 6);
-      ctx.lineTo(p.x - 22, p.y);
-      ctx.closePath();
-      ctx.fill();
-    } else if (wallMeta.faceEast) {
-      ctx.fillStyle = '#0f172a';
-      ctx.beginPath();
-      ctx.moveTo(p.x + 8, p.y + 20);
-      ctx.lineTo(p.x + 24, p.y + 12);
-      ctx.lineTo(p.x + 24, p.y - 4);
-      ctx.lineTo(p.x + 8, p.y + 4);
-      ctx.closePath();
-      ctx.fill();
-
-      ctx.fillStyle = winColor;
-      ctx.beginPath();
-      ctx.moveTo(p.x + 10, p.y + 17);
-      ctx.lineTo(p.x + 22, p.y + 11);
-      ctx.lineTo(p.x + 22, p.y);
-      ctx.lineTo(p.x + 10, p.y + 6);
-      ctx.closePath();
-      ctx.fill();
-    }
-
-    if (building?.category === 'commercial' && wallMeta.faceSouth && pal?.awning) {
-      ctx.fillStyle = pal.awning;
-      ctx.beginPath();
-      ctx.moveTo(p.x - TILE_W / 2, p.y + TILE_H / 2 - 28);
-      ctx.lineTo(p.x, p.y + TILE_H - 28);
-      ctx.lineTo(p.x - 6, p.y + TILE_H - 20);
-      ctx.lineTo(p.x - TILE_W / 2 - 6, p.y + TILE_H / 2 - 20);
-      ctx.closePath();
-      ctx.fill();
-    }
-    ctx.restore();
-  }
-}
-
-function drawDoor(ctx, door, camX, camY, isHighlighted) {
-  const pos = worldToScreen(door.x + 0.5, door.y + 0.5, camX, camY);
-
-  if (isHighlighted) {
-    ctx.beginPath();
-    ctx.ellipse(pos.x, pos.y + 2, 22, 11, 0, 0, Math.PI * 2);
-    ctx.strokeStyle = '#fbbf24';
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
-  }
-
-  if (door.state === 'open') {
-    ctx.fillStyle = 'rgba(146, 64, 14, 0.55)';
-    ctx.beginPath();
-    ctx.ellipse(pos.x, pos.y, 14, 7, 0, 0, Math.PI * 2);
-    ctx.fill();
-    return;
-  }
-
-  const palette =
-    door.state === 'barricaded'
-      ? { left: '#7f1d1d', right: '#991b1b', top: '#b91c1c' }
-      : door.state === 'locked'
-      ? { left: '#92400e', right: '#b45309', top: '#d97706' }
-      : { left: '#78350f', right: '#92400e', top: '#b45309' };
-
-  drawExtrudedBlock(ctx, door.x, door.y, camX, camY, 36, palette, 1);
-
-  ctx.font = 'bold 11px -apple-system, sans-serif';
-  ctx.textAlign = 'center';
-  if (door.state === 'locked') {
-    ctx.fillStyle = '#fbbf24';
-    ctx.fillText('🔒', pos.x, pos.y - 40);
-  } else if (door.state === 'barricaded') {
-    ctx.fillStyle = '#fca5a5';
-    ctx.fillText('🪵', pos.x, pos.y - 40);
-  }
-}
-
-function drawInteriorProp(ctx, prop, camX, camY) {
-  const w = prop.w || 2;
-  const d = prop.d || 1;
-  if (prop.kind === 'bed') {
-    drawIsoBox(ctx, prop.x, prop.y, prop.x + w, prop.y + d, 0, 10, camX, camY, {
-      left: '#1e3a8a',
-      right: '#172554',
-      top: '#2563eb'
-    });
-    drawIsoBox(ctx, prop.x + 0.15, prop.y + 0.15, prop.x + w - 0.15, prop.y + 0.65, 10, 3, camX, camY, {
-      left: '#cbd5e1',
-      right: '#94a3b8',
-      top: '#f8fafc'
-    });
-  } else if (prop.kind === 'counter') {
-    drawIsoBox(ctx, prop.x, prop.y, prop.x + w, prop.y + d, 0, 14, camX, camY, {
-      left: '#78350f',
-      right: '#5c280b',
-      top: '#cbd5e1'
-    });
-  } else if (prop.kind === 'shelf') {
-    drawIsoBox(ctx, prop.x, prop.y, prop.x + w, prop.y + d, 0, 22, camX, camY, {
-      left: '#475569',
-      right: '#334155',
-      top: '#64748b'
-    });
-  } else {
-    drawIsoBox(ctx, prop.x, prop.y, prop.x + w, prop.y + d, 0, 12, camX, camY, {
-      left: '#92400e',
-      right: '#78350f',
-      top: '#b45309'
-    });
-  }
-}
-
-function drawRoofCap(ctx, building, camX, camY) {
-  const pal = building.palette || {
-    wallL: '#475569',
-    wallR: '#334155',
-    roofL: '#334155',
-    roofR: '#1e293b'
-  };
-
-  const rects = building.rects || [{ x1: building.x1, y1: building.y1, x2: building.x2, y2: building.y2 }];
-  const wallH = 42;
-
-  for (const r of rects) {
-    const x1 = r.x1;
-    const y1 = r.y1;
-    const x2 = r.x2 + 1;
-    const y2 = r.y2 + 1;
-
-    const nw = worldToScreen(x1, y1, camX, camY);
-    const ne = worldToScreen(x2, y1, camX, camY);
-    const se = worldToScreen(x2, y2, camX, camY);
-    const sw = worldToScreen(x1, y2, camX, camY);
-
-    if (building.roofStyle === 'parapet') {
-      const rimH = wallH + 6;
-      ctx.fillStyle = pal.roofR;
-      ctx.beginPath();
-      ctx.moveTo(nw.x, nw.y - rimH);
-      ctx.lineTo(ne.x, ne.y - rimH);
-      ctx.lineTo(se.x, se.y - rimH);
-      ctx.lineTo(sw.x, sw.y - rimH);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = pal.wallL;
-      ctx.lineWidth = 3;
-      ctx.stroke();
-
-      const cx = (x1 + x2) / 2;
-      const cy = (y1 + y2) / 2;
-      drawIsoBox(ctx, cx - 1.2, cy - 1.2, cx + 1.2, cy + 1.2, rimH - 2, 7, camX, camY, {
-        left: '#94a3b8',
-        right: '#64748b',
-        top: '#cbd5e1'
-      });
-    } else {
-      const spanX = x2 - x1;
-      const spanY = y2 - y1;
-      const ridgeH = wallH + Math.min(26, Math.max(16, Math.min(spanX, spanY) * 2.2));
-
-      if (spanX >= spanY) {
-        const midY = (y1 + y2) / 2;
-        const rWest = worldToScreen(x1, midY, camX, camY);
-        const rEast = worldToScreen(x2, midY, camX, camY);
-
-        const eastFacesCamera = (ne.y + se.y) / 2 >= (nw.y + sw.y) / 2;
-        if (!eastFacesCamera) {
-          ctx.fillStyle = pal.wallL;
-          ctx.beginPath();
-          ctx.moveTo(nw.x, nw.y - wallH);
-          ctx.lineTo(sw.x, sw.y - wallH);
-          ctx.lineTo(rWest.x, rWest.y - ridgeH);
-          ctx.closePath();
-          ctx.fill();
-        }
-
-        ctx.fillStyle = pal.roofR;
-        ctx.beginPath();
-        ctx.moveTo(nw.x, nw.y - wallH);
-        ctx.lineTo(ne.x, ne.y - wallH);
-        ctx.lineTo(rEast.x, rEast.y - ridgeH);
-        ctx.lineTo(rWest.x, rWest.y - ridgeH);
-        ctx.closePath();
-        ctx.fill();
-
-        ctx.fillStyle = pal.roofL;
-        ctx.beginPath();
-        ctx.moveTo(rWest.x, rWest.y - ridgeH);
-        ctx.lineTo(rEast.x, rEast.y - ridgeH);
-        ctx.lineTo(se.x, se.y - wallH);
-        ctx.lineTo(sw.x, sw.y - wallH);
-        ctx.closePath();
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(15, 23, 42, 0.45)';
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-
-        if (eastFacesCamera) {
-          ctx.fillStyle = pal.wallR;
-          ctx.beginPath();
-          ctx.moveTo(ne.x, ne.y - wallH);
-          ctx.lineTo(se.x, se.y - wallH);
-          ctx.lineTo(rEast.x, rEast.y - ridgeH);
-          ctx.closePath();
-          ctx.fill();
-        }
-      } else {
-        const midX = (x1 + x2) / 2;
-        const rNorth = worldToScreen(midX, y1, camX, camY);
-        const rSouth = worldToScreen(midX, y2, camX, camY);
-
-        const southFacesCamera = (sw.y + se.y) / 2 >= (nw.y + ne.y) / 2;
-        if (!southFacesCamera) {
-          ctx.fillStyle = pal.wallR;
-          ctx.beginPath();
-          ctx.moveTo(nw.x, nw.y - wallH);
-          ctx.lineTo(ne.x, ne.y - wallH);
-          ctx.lineTo(rNorth.x, rNorth.y - ridgeH);
-          ctx.closePath();
-          ctx.fill();
-        }
-
-        ctx.fillStyle = pal.roofL;
-        ctx.beginPath();
-        ctx.moveTo(nw.x, nw.y - wallH);
-        ctx.lineTo(rNorth.x, rNorth.y - ridgeH);
-        ctx.lineTo(rSouth.x, rSouth.y - ridgeH);
-        ctx.lineTo(sw.x, sw.y - wallH);
-        ctx.closePath();
-        ctx.fill();
-
-        ctx.fillStyle = pal.roofR;
-        ctx.beginPath();
-        ctx.moveTo(rNorth.x, rNorth.y - ridgeH);
-        ctx.lineTo(ne.x, ne.y - wallH);
-        ctx.lineTo(se.x, se.y - wallH);
-        ctx.lineTo(rSouth.x, rSouth.y - ridgeH);
-        ctx.closePath();
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(15, 23, 42, 0.45)';
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-
-        if (southFacesCamera) {
-          ctx.fillStyle = pal.wallL;
-          ctx.beginPath();
-          ctx.moveTo(sw.x, sw.y - wallH);
-          ctx.lineTo(se.x, se.y - wallH);
-          ctx.lineTo(rSouth.x, rSouth.y - ridgeH);
-          ctx.closePath();
-          ctx.fill();
-        }
-      }
-    }
-  }
-
-  if (building.category !== 'commercial') {
-    const r0 = rects[0];
-    drawIsoBox(ctx, r0.x1 + 1.5, r0.y1 + 1.5, r0.x1 + 2.4, r0.y1 + 2.4, wallH + 10, 14, camX, camY, {
-      left: '#991b1b',
-      right: '#7f1d1d',
-      top: '#450a0a'
-    });
-  }
-
-  const midX = (building.x1 + building.x2 + 1) / 2;
-  const midY = (building.y1 + building.y2 + 1) / 2;
-  const center = worldToScreen(midX, midY, camX, camY);
-  ctx.font = 'bold 11px -apple-system, sans-serif';
-  ctx.fillStyle = building.id === 'rockmart-pd' ? '#38bdf8' : 'rgba(241, 245, 249, 0.94)';
-  ctx.textAlign = 'center';
-  ctx.fillText(building.name.toUpperCase(), center.x, center.y - 68);
 }
 
 function drawQuarryLandmarks(ctx, camX, camY) {
@@ -1095,14 +680,12 @@ export function renderMinimap(mctx, player, activeChunks) {
   mctx.fillStyle = '#14221a';
   mctx.fillRect(0, 0, w, h);
 
-  // District shading (Downtown, West & East Suburbs)
   mctx.fillStyle = 'rgba(100, 116, 139, 0.32)';
   mctx.fillRect(760 * scale, 580 * scale, 500 * scale, 480 * scale);
   mctx.fillStyle = 'rgba(100, 116, 139, 0.18)';
   mctx.fillRect(340 * scale, 620 * scale, 380 * scale, 440 * scale);
   mctx.fillRect(1420 * scale, 580 * scale, 380 * scale, 420 * scale);
 
-  // Euharlee River
   mctx.strokeStyle = '#2563eb';
   mctx.lineWidth = 1.8;
   mctx.beginPath();
@@ -1113,7 +696,6 @@ export function renderMinimap(mctx, player, activeChunks) {
   }
   mctx.stroke();
 
-  // Interstate-20 Freeway
   mctx.strokeStyle = '#f97316';
   mctx.lineWidth = 1.8;
   mctx.beginPath();
@@ -1124,7 +706,6 @@ export function renderMinimap(mctx, player, activeChunks) {
   }
   mctx.stroke();
 
-  // US-278 Highway & Main Arterials
   mctx.strokeStyle = '#94a3b8';
   mctx.lineWidth = 1.1;
   mctx.beginPath();
@@ -1143,7 +724,6 @@ export function renderMinimap(mctx, player, activeChunks) {
   mctx.lineTo(1880 * scale, 1320 * scale);
   mctx.stroke();
 
-  // Quarry Safe Hub
   const qc = getQuarryCenter();
   mctx.fillStyle = 'rgba(34, 197, 94, 0.25)';
   mctx.strokeStyle = '#4ade80';
@@ -1153,11 +733,9 @@ export function renderMinimap(mctx, player, activeChunks) {
   mctx.fill();
   mctx.stroke();
 
-  // Police Precinct marker
   mctx.fillStyle = '#38bdf8';
   mctx.fillRect(policePrecinct.x * scale - 2, policePrecinct.y * scale - 2, 4, 4);
 
-  // Active chunk buildings & supply markers
   for (const c of activeChunks) {
     mctx.fillStyle = 'rgba(203, 213, 225, 0.55)';
     for (const b of c.buildings) {
@@ -1216,15 +794,9 @@ export function renderFrame(ctx, player, activeChunks, nearbyLoot, nearbyDoor, o
   const maxY = Math.min(MAP_SIZE - 1, Math.ceil(player.y + 22));
 
   const revealedMap = {};
-  const wallLookup = new Map();
   for (const c of activeChunks) {
     for (const b of c.buildings) {
       revealedMap[b.id] = isBuildingRevealed(b, player, activeChunks);
-      if (b.wallTiles) {
-        for (const wt of b.wallTiles) {
-          wallLookup.set(`${wt.x},${wt.y}`, { building: b, meta: wt });
-        }
-      }
     }
   }
 
@@ -1251,35 +823,53 @@ export function renderFrame(ctx, player, activeChunks, nearbyLoot, nearbyDoor, o
     return r.rx + r.ry;
   };
 
+  // Perimeter solid blocks (Quarry wall & map border)
   for (let y = minY; y <= maxY; y++) {
     for (let x = minX; x <= maxX; x++) {
       if (getTileAt(x, y) === 2) {
-        const entry = wallLookup.get(`${x},${y}`);
         renderables.push({
-          depth: depthOf(x, y),
+          depth: depthOf(x + 0.5, y + 0.5),
           draw: () =>
-            drawWall(ctx, x, y, camX, camY, player, visibleZombies, entry?.building, entry?.meta)
+            drawExtrudedBlock(
+              ctx,
+              x,
+              y,
+              camX,
+              camY,
+              42,
+              { left: '#475569', right: '#334155', top: '#64748b' },
+              1
+            )
         });
       }
     }
   }
 
+  // Thin 5-inch edge walls (exterior + interior room partitions), edge doors & solid furniture
+  const seenEdges = new Set();
   for (const c of activeChunks) {
-    for (const d of c.doors) {
-      if (d.x >= minX && d.x <= maxX && d.y >= minY && d.y <= maxY) {
-        renderables.push({
-          depth: depthOf(d.x, d.y) + 0.02,
-          draw: () => drawDoor(ctx, d, camX, camY, nearbyDoor === d)
-        });
-      }
-    }
-
     for (const b of c.buildings) {
-      if (revealedMap[b.id] && b.props) {
+      const bRevealed = revealedMap[b.id];
+      if (b.edgeWalls) {
+        for (const w of b.edgeWalls) {
+          if (!w.isExterior && !bRevealed) continue;
+          if (w.x < minX || w.x > maxX + 1 || w.y < minY || w.y > maxY + 1) continue;
+          if (seenEdges.has(w.key)) continue;
+          seenEdges.add(w.key);
+          const mx = w.orient === 'H' ? w.x + 0.5 : w.x;
+          const my = w.orient === 'H' ? w.y : w.y + 0.5;
+          renderables.push({
+            depth: depthOf(mx, my),
+            draw: () => drawThinWall(ctx, w, b, camX, camY, player)
+          });
+        }
+      }
+
+      if (bRevealed && b.props) {
         for (const prop of b.props) {
           if (prop.x >= minX && prop.x <= maxX && prop.y >= minY && prop.y <= maxY) {
             renderables.push({
-              depth: depthOf(prop.x + (prop.w || 1) / 2, prop.y + (prop.d || 1) / 2) + 0.03,
+              depth: depthOf(prop.x + (prop.w || 1) / 2, prop.y + (prop.d || 1) / 2),
               draw: () => drawInteriorProp(ctx, prop, camX, camY)
             });
           }
@@ -1287,11 +877,25 @@ export function renderFrame(ctx, player, activeChunks, nearbyLoot, nearbyDoor, o
       }
     }
 
+    for (const d of c.doors) {
+      if (d.interior && !revealedMap[d.buildingId]) continue;
+      if (d.x >= minX && d.x <= maxX + 1 && d.y >= minY && d.y <= maxY + 1) {
+        if (seenEdges.has(d.key)) continue;
+        seenEdges.add(d.key);
+        const mx = d.orient === 'H' ? d.x + 0.5 : d.x;
+        const my = d.orient === 'H' ? d.y : d.y + 0.5;
+        renderables.push({
+          depth: depthOf(mx, my) + 0.01,
+          draw: () => drawEdgeDoor(ctx, d, camX, camY, nearbyDoor === d)
+        });
+      }
+    }
+
     if (c.props) {
       for (const prop of c.props) {
         if (prop.x >= minX && prop.x <= maxX && prop.y >= minY && prop.y <= maxY) {
           renderables.push({
-            depth: depthOf(prop.x, prop.y) + 0.04,
+            depth: depthOf(prop.x, prop.y),
             draw: () => drawEnvProp(ctx, prop, camX, camY, player)
           });
         }
