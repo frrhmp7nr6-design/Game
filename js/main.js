@@ -190,7 +190,9 @@ function handleDoorAction() {
   }
 
   if (d.state === 'open') {
-    if (Math.floor(player.x) === d.x && Math.floor(player.y) === d.y) {
+    const mx = d.orient === 'H' ? d.x + 0.5 : d.x;
+    const my = d.orient === 'H' ? d.y : d.y + 0.5;
+    if (Math.hypot(player.x - mx, player.y - my) < 0.45) {
       showToast('Step out of doorway first');
       return;
     }
@@ -235,12 +237,14 @@ function smashDoor(d) {
   d.hp = Math.max(0, d.hp - dmg);
   doorDamage.set(d.key, d.hp);
 
+  const mx = d.orient === 'H' ? d.x + 0.5 : d.x;
+  const my = d.orient === 'H' ? d.y : d.y + 0.5;
   fxList.push({
     type: 'melee',
     fromX: player.x,
     fromY: player.y,
-    toX: d.x + 0.5,
-    toY: d.y + 0.5,
+    toX: mx,
+    toY: my,
     angle: player.angle,
     life: 0.16,
     maxLife: 0.16
@@ -577,7 +581,9 @@ function update(dt) {
   let bestDoorDist = 1.45;
   for (const c of activeChunks) {
     for (const d of c.doors) {
-      const dist = Math.hypot(d.x + 0.5 - player.x, d.y + 0.5 - player.y);
+      const mx = d.orient === 'H' ? d.x + 0.5 : d.x;
+      const my = d.orient === 'H' ? d.y : d.y + 0.5;
+      const dist = Math.hypot(mx - player.x, my - player.y);
       if (dist < bestDoorDist) {
         bestDoorDist = dist;
         nearbyDoor = d;
