@@ -1,4 +1,4 @@
-import { canWalkTo, hasLineOfSight, worldToScreen } from './map.js';
+import { canWalkTo, worldToScreen } from './map.js';
 import { isInsideQuarryHub, killedZombieIds } from './chunks.js';
 import { dropHeavyCrate, showToast } from './inventory.js';
 import { broadcastWorldEvent } from './net.js';
@@ -7,52 +7,52 @@ export const WEAPONS = {
   fists: {
     name: 'Fists',
     type: 'melee',
-    damage: 18,
-    range: 1.75,
-    arc: 0.95,
-    cooldown: 0.42,
-    staminaCost: 3,
-    knockback: 0.4
+    damage: 20,
+    range: 1.9,
+    arc: 1.05,
+    cooldown: 0.4,
+    staminaCost: 2,
+    knockback: 0.42
   },
   crowbar: {
     name: 'Crowbar',
     type: 'melee',
-    damage: 40,
-    range: 2.1,
-    arc: 1.05,
-    cooldown: 0.52,
-    staminaCost: 7,
-    knockback: 0.7
+    damage: 42,
+    range: 2.25,
+    arc: 1.15,
+    cooldown: 0.48,
+    staminaCost: 5,
+    knockback: 0.72
   },
   axe: {
     name: 'Fire Axe',
     type: 'melee',
-    damage: 70,
-    range: 2.3,
-    arc: 1.1,
-    cooldown: 0.72,
-    staminaCost: 12,
+    damage: 72,
+    range: 2.45,
+    arc: 1.2,
+    cooldown: 0.65,
+    staminaCost: 9,
     knockback: 0.95
   },
   pistol: {
     name: '9mm Pistol',
     type: 'ranged',
-    damage: 50,
-    range: 11.0,
-    arc: 0.28,
-    cooldown: 0.42,
-    staminaCost: 2,
-    knockback: 0.3
+    damage: 52,
+    range: 11.5,
+    arc: 0.34,
+    cooldown: 0.38,
+    staminaCost: 1,
+    knockback: 0.32
   },
   rifle: {
     name: 'Hunting Rifle',
     type: 'ranged',
-    damage: 115,
-    range: 15.0,
-    arc: 0.18,
-    cooldown: 0.82,
-    staminaCost: 3,
-    knockback: 0.55
+    damage: 120,
+    range: 15.5,
+    arc: 0.22,
+    cooldown: 0.75,
+    staminaCost: 2,
+    knockback: 0.58
   }
 };
 
@@ -64,6 +64,43 @@ export function getActiveZombies(activeChunks) {
     for (const z of c.zombies) list.push(z);
   }
   return list;
+}
+
+// Exact segment-vs-edge check so open doorways never false-block attacks
+function isSightClear(x1, y1, x2, y2, activeChunks) {
+  const dist = Math.hypot(x2 - x1, y2 - y1);
+  if (dist < 0.45) return true;
+
+  const isBlocked = (edgeKey) => {
+    for (const c of activeChunks) {
+      if (c.edgeWalls && c.edgeWalls.has(edgeKey)) return true;
+      if (c.edgeDoors && c.edgeDoors.has(edgeKey)) {
+        const door = c.edgeDoors.get(edgeKey);
+        if (door && door.state !== 'open') return true;
+      }
+    }
+    return false;
+  };
+
+  // Check every integer X grid line crossed between x1 and x2
+  const minGx = Math.floor(Math.min(x1, x2)) + 1;
+  const maxGx = Math.floor(Math.max(x1, x2));
+  for (let gx = minGx; gx <= maxGx; gx++) {
+    const t = (gx - x1) / (x2 - x1);
+    const iy = y1 + (y2 - y1) * t;
+    if (isBlocked(`V:${gx},${Math.floor(iy)}`)) return false;
+  }
+
+  // Check every integer Y grid line crossed between y1 and y2
+  const minGy = Math.floor(Math.min(y1, y2)) + 1;
+  const maxGy = Math.floor(Math.max(y1, y2));
+  for (let gy = minGy; gy <= maxGy; gy++) {
+    const t = (gy - y1) / (y2 - y1);
+    const ix = x1 + (x2 - x1) * t;
+    if (isBlocked(`H:${Math.floor(ix)},${gy}`)) return false;
+  }
+
+  return true;
 }
 
 function getTargetsInCone(player, activeChunks, weapon, effectiveRange) {
@@ -84,10 +121,10 @@ function getTargetsInCone(player, activeChunks, weapon, effectiveRange) {
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
 
-      const withinCone = Math.abs(diff) <= weapon.arc || (dist < 1.15 && Math.abs(diff) <= 1.35);
+      const withinCone = Math.abs(diff) <= weapon.arc || (dist < 1.25 && Math.abs(diff) <= 1.45);
       if (!withinCone) continue;
 
-      if (!hasLineOfSight(player.x, player.y, z.x, z.y, activeChunks)) continue;
+      if (!isSightClear(player.x, player.y, z.x, z.y, activeChunks)) continue;
 
       candidates.push({ chunk: c, index: i, z, dist });
     }
@@ -106,14 +143,7 @@ export function performAttack(player, activeChunks, isAuto = false) {
   const effectiveRange = isMarksmanRanged ? weapon.range * 1.25 : weapon.range;
 
   const candidates = getTargetsInCone(player, activeChunks, weapon, effectiveRange);
-
-  // Auto-attack only triggers when an enemy is actually inside the aim cone & line-of-sight
-  if (isAuto && candidates.length === 0) return;
-
-  if (player.stamina < weapon.staminaCost) {
-    if (!isAuto) showToast('Too exhausted to attack!');
-    return;
-  }
+  if (isAuto === true && candidates.length === 0) return;
 
   if (player.carryingCrate) {
     dropHeavyCrate(player);
@@ -153,8 +183,8 @@ export function performAttack(player, activeChunks, isAuto = false) {
       toX: player.x,
       toY: player.y,
       angle: player.angle,
-      life: 0.18,
-      maxLife: 0.18
+      life: 0.2,
+      maxLife: 0.2
     });
   }
 
@@ -162,7 +192,7 @@ export function performAttack(player, activeChunks, isAuto = false) {
     const { chunk, index, z } = hitTargets[i];
     const finalDmg = Math.round(weapon.damage * dmgMult);
     z.hp -= finalDmg;
-    z.hitFlash = 0.15;
+    z.hitFlash = 0.16;
     z.aggro = true;
     z.lostSightTimer = 0;
 
@@ -198,7 +228,7 @@ export function updateCombat(dt, player, activeChunks) {
 
   const playerInSafeHub = isInsideQuarryHub(player.x, player.y);
 
-  // Auto-attack closest zombie(s) whenever aim cone faces a target in range & line-of-sight
+  // Auto-attack closest zombie(s) whenever aim cone faces a target in range & clear sight
   if (!playerInSafeHub && !player.dead && player.attackTimer === 0) {
     performAttack(player, activeChunks, true);
   }
@@ -239,7 +269,7 @@ export function updateCombat(dt, player, activeChunks) {
       const canSeePlayer =
         !playerInSafeHub &&
         dist < 14.5 &&
-        hasLineOfSight(z.x, z.y, player.x, player.y, activeChunks);
+        isSightClear(z.x, z.y, player.x, player.y, activeChunks);
 
       if (playerInSafeHub) {
         z.aggro = false;
