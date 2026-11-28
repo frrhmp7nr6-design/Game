@@ -1,4 +1,4 @@
-import { openedDoors, doorDamage, lootedIds } from './chunks.js';
+import { openedDoors, doorDamage } from './chunks.js';
 
 const HOUSE_PALETTES = [
   { name: 'Clapboard White', wallL: '#cbd5e1', wallR: '#94a3b8', roofL: '#475569', roofR: '#334155', trim: '#f8fafc', floor: '#78553a' },
@@ -17,12 +17,11 @@ const COMMERCIAL_PALETTES = [
   { name: 'Midtown Stone', wallL: '#57534e', wallR: '#44403c', roofL: '#292524', roofR: '#1c1917', awning: '#7c3aed', floor: '#44403c' }
 ];
 
-// Canonical edge key between tile (x,y) and its North or West neighbor so adjacent cells share one thin wall
 export function makeEdgeKey(x, y, side) {
   if (side === 'N') return `H:${x},${y}`;
   if (side === 'S') return `H:${x},${y + 1}`;
   if (side === 'W') return `V:${x},${y}`;
-  return `V:${x + 1},${y}`; // 'E'
+  return `V:${x + 1},${y}`;
 }
 
 export function stampThinWallBuilding(chunk, config) {
@@ -30,8 +29,8 @@ export function stampThinWallBuilding(chunk, config) {
     id,
     name,
     category,
-    rooms, // Array of { name, type, x1, y1, x2, y2, floorTile }
-    doorSpecs, // Array of { x, y, side: 'N'|'S'|'E'|'W', state: 'unlocked'|'locked'|'barricaded'|'open', interior: boolean }
+    rooms,
+    doorSpecs,
     seed = 0.5,
     defaultRevealed = false,
     porchRect = null
@@ -81,9 +80,18 @@ export function stampThinWallBuilding(chunk, config) {
       : 'hip';
 
   const doorEdgeMap = new Map();
+  const doorSwingPoints = [];
   for (const ds of doorSpecs) {
     const eKey = makeEdgeKey(ds.x, ds.y, ds.side);
     doorEdgeMap.set(eKey, ds);
+
+    // Record both tiles on either side of the doorway so furniture never blocks swing clearance
+    const orient = ds.side === 'N' || ds.side === 'S' ? 'H' : 'V';
+    const ex = ds.side === 'E' ? ds.x + 1 : ds.x;
+    const ey = ds.side === 'S' ? ds.y + 1 : ds.y;
+    const mx = orient === 'H' ? ex + 0.5 : ex;
+    const my = orient === 'H' ? ey : ey + 0.5;
+    doorSwingPoints.push({ x: mx, y: my });
   }
 
   const edgeWalls = [];
@@ -125,7 +133,7 @@ export function stampThinWallBuilding(chunk, config) {
           key: eKey,
           x: ex,
           y: ey,
-          orient, // 'H' (along X axis) or 'V' (along Y axis)
+          orient,
           buildingId: id,
           interior: Boolean(doorSpec.interior),
           state: isOpen ? 'open' : doorSpec.state,
@@ -155,7 +163,6 @@ export function stampThinWallBuilding(chunk, config) {
     }
   }
 
-  // Porch & walkway tiles outside main entrance
   if (porchRect) {
     for (let py = porchRect.y1; py <= porchRect.y2; py++) {
       for (let px = porchRect.x1; px <= porchRect.x2; px++) {
@@ -170,40 +177,64 @@ export function stampThinWallBuilding(chunk, config) {
     }
   }
 
-  // Populate room-specific solid furniture props
+  // Helper: only place furniture if its bounding box stays >= 1.25 tiles away from all doorways
   const props = [];
+  const tryAddProp = (prop) => {
+    const cx = prop.x + prop.w / 2;
+    const cy = prop.y + prop.d / 2;
+    for (const dp of doorSwingPoints) {
+      const nearX = Math.max(prop.x, Math.min(dp.x, prop.x + prop.w));
+      const nearY = Math.max(prop.y, Math.min(dp.y, prop.y + prop.d));
+      if (Math.hypot(dp.x - nearX, dp.y - nearY) < 1.15) {
+        return;
+      }
+    }
+    // Also avoid overlapping existing props
+    for (const other of props) {
+      if (
+        prop.x < other.x + other.w + 0.15 &&
+        prop.x + prop.w + 0.15 > other.x &&
+        prop.y < other.y + other.d + 0.15 &&
+        prop.y + prop.d + 0.15 > other.y
+      ) {
+        return;
+      }
+    }
+    props.push(prop);
+  };
+
   for (const rm of rooms) {
     const rw = rm.x2 - rm.x1 + 1;
     const rh = rm.y2 - rm.y1 + 1;
     if (rm.type === 'bedroom' && rw >= 3 && rh >= 3) {
-      props.push({ x: rm.x1 + 0.2, y: rm.y1 + 0.2, w: 1.8, d: 1.8, kind: 'bed', solid: true });
+      tryAddProp({ x: rm.x1 + 0.15, y: rm.y1 + 0.15, w: 1.7, d: 1.7, kind: 'bed', solid: true });
       if (rw >= 4) {
-        props.push({ x: rm.x2 - 1.1, y: rm.y1 + 0.2, w: 0.9, d: 1.4, kind: 'dresser', solid: true });
+        tryAddProp({ x: rm.x2 - 0.95, y: rm.y1 + 0.15, w: 0.85, d: 1.3, kind: 'dresser', solid: true });
       }
     } else if (rm.type === 'bathroom' && rw >= 2 && rh >= 2) {
-      props.push({ x: rm.x1 + 0.2, y: rm.y1 + 0.2, w: 0.8, d: 0.8, kind: 'toilet', solid: true });
+      tryAddProp({ x: rm.x1 + 0.15, y: rm.y1 + 0.15, w: 0.75, d: 0.75, kind: 'toilet', solid: true });
       if (rw >= 3) {
-        props.push({ x: rm.x2 - 1.2, y: rm.y1 + 0.2, w: 1.0, d: 1.6, kind: 'tub', solid: true });
+        tryAddProp({ x: rm.x2 - 1.05, y: rm.y1 + 0.15, w: 0.9, d: 1.4, kind: 'tub', solid: true });
       }
     } else if (rm.type === 'kitchen' && rw >= 3 && rh >= 3) {
-      props.push({ x: rm.x1 + 0.2, y: rm.y1 + 0.2, w: Math.min(2.6, rw - 1.4), d: 0.9, kind: 'counter', solid: true });
-      props.push({ x: rm.x2 - 1.1, y: rm.y1 + 0.2, w: 0.9, d: 0.9, kind: 'fridge', solid: true });
+      tryAddProp({ x: rm.x1 + 0.15, y: rm.y1 + 0.15, w: Math.min(2.4, rw - 1.3), d: 0.85, kind: 'counter', solid: true });
+      tryAddProp({ x: rm.x2 - 1.0, y: rm.y1 + 0.15, w: 0.85, d: 0.85, kind: 'fridge', solid: true });
       if (rh >= 4) {
-        props.push({ x: rm.x1 + 0.8, y: rm.y2 - 1.5, w: 1.6, d: 1.1, kind: 'table', solid: true });
+        tryAddProp({ x: rm.x1 + 0.6, y: rm.y2 - 1.3, w: 1.4, d: 1.0, kind: 'table', solid: true });
       }
     } else if (rm.type === 'living' && rw >= 4 && rh >= 3) {
-      props.push({ x: rm.x1 + 0.4, y: rm.y1 + 0.4, w: 2.2, d: 1.0, kind: 'sofa', solid: true });
-      props.push({ x: rm.x1 + 0.8, y: rm.y1 + 1.8, w: 1.4, d: 0.8, kind: 'table', solid: true });
+      tryAddProp({ x: rm.x1 + 0.3, y: rm.y1 + 0.3, w: 2.0, d: 0.9, kind: 'sofa', solid: true });
+      tryAddProp({ x: rm.x1 + 0.7, y: rm.y1 + 1.6, w: 1.3, d: 0.75, kind: 'table', solid: true });
     } else if (rm.type === 'garage' && rw >= 4 && rh >= 4) {
-      props.push({ x: rm.x1 + 0.2, y: rm.y1 + 0.2, w: 2.4, d: 0.9, kind: 'workbench', solid: true });
+      tryAddProp({ x: rm.x1 + 0.2, y: rm.y1 + 0.2, w: 2.2, d: 0.85, kind: 'workbench', solid: true });
     } else if (rm.type === 'retail' && rw >= 5 && rh >= 5) {
-      props.push({ x: rm.x1 + 1.0, y: rm.y1 + 0.5, w: 2.8, d: 0.9, kind: 'counter', solid: true });
-      props.push({ x: rm.x1 + 1.0, y: rm.y1 + 2.6, w: 2.6, d: 0.8, kind: 'shelf', solid: true });
+      tryAddProp({ x: rm.x1 + 0.8, y: rm.y1 + 0.4, w: 2.6, d: 0.85, kind: 'counter', solid: true });
+      tryAddProp({ x: rm.x1 + 0.8, y: rm.y1 + 2.5, w: 2.4, d: 0.75, kind: 'shelf', solid: true });
       if (rw >= 8) {
-        props.push({ x: rm.x2 - 3.6, y: rm.y1 + 2.6, w: 2.6, d: 0.8, kind: 'shelf', solid: true });
+        tryAddProp({ x: rm.x2 - 3.3, y: rm.y1 + 2.5, w: 2.4, d: 0.75, kind: 'shelf', solid: true });
       }
     } else if (rm.type === 'shed' && rw >= 3 && rh >= 3) {
-      props.push({ x: rm.x1 + 0.2, y: rm.y1 + 0.2, w: 1.8, d: 0.8, kind: 'shelf', solid: true });
+      tryAddProp({ x: rm.x1 + 0.2, y: rm.y1 + 0.2, w: 1.6, d: 0.75, kind: 'shelf', solid: true });
     }
   }
 
@@ -230,7 +261,6 @@ export function stampThinWallBuilding(chunk, config) {
   return bldg;
 }
 
-// Generates realistic floorplans: 1BR/1BA Cottage, 3BR/2BA Ranch + Garage, Mansion, or Storefront
 export function generateFloorplanBuilding(chunk, opts) {
   const { id, name, bx, by, tier, doorState, seed } = opts;
 
@@ -260,7 +290,6 @@ export function generateFloorplanBuilding(chunk, opts) {
   }
 
   if (tier === 'cottage_1br') {
-    // 1 Bedroom / 1 Bathroom Starter Cottage (7x6)
     const rooms = [
       { name: 'Living & Kitchen', type: 'kitchen', x1: bx, y1: by + 3, x2: bx + 6, y2: by + 5 },
       { name: 'Bedroom', type: 'bedroom', x1: bx, y1: by, x2: bx + 3, y2: by + 2 },
@@ -282,7 +311,7 @@ export function generateFloorplanBuilding(chunk, opts) {
     });
     return {
       lootSpots: [
-        { x: bx + 1.5, y: by + 1.5, room: 'bedroom' },
+        { x: bx + 2.5, y: by + 1.5, room: 'bedroom' },
         { x: bx + 5.5, y: by + 1.5, room: 'bathroom' }
       ],
       zX: bx + 4.5,
@@ -291,7 +320,6 @@ export function generateFloorplanBuilding(chunk, opts) {
   }
 
   if (tier === 'mansion') {
-    // 4 Bedroom / 3 Bathroom Estate Mansion + 2-Car Garage (15x12)
     const rooms = [
       { name: 'Grand Foyer & Living', type: 'living', x1: bx + 4, y1: by + 6, x2: bx + 10, y2: by + 11 },
       { name: 'Gourmet Kitchen', type: 'kitchen', x1: bx + 4, y1: by + 3, x2: bx + 10, y2: by + 5 },
@@ -324,7 +352,7 @@ export function generateFloorplanBuilding(chunk, opts) {
     });
     return {
       lootSpots: [
-        { x: bx + 1.5, y: by + 1.5, room: 'bedroom' },
+        { x: bx + 2.5, y: by + 1.5, room: 'bedroom' },
         { x: bx + 1.5, y: by + 5.5, room: 'bathroom' },
         { x: bx + 12.5, y: by + 8.5, room: 'garage' }
       ],
@@ -367,7 +395,7 @@ export function generateFloorplanBuilding(chunk, opts) {
 
   return {
     lootSpots: [
-      { x: bx + 1.5, y: by + 1.5, room: 'bedroom' },
+      { x: bx + 2.5, y: by + 1.5, room: 'bedroom' },
       { x: bx + 1.5, y: by + 3.5, room: 'bathroom' },
       { x: bx + 9.5, y: by + 6.5, room: 'garage' }
     ],
