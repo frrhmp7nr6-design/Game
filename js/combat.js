@@ -10,7 +10,7 @@ export const WEAPONS = {
     damage: 18,
     range: 1.75,
     arc: 0.95,
-    cooldown: 0.38,
+    cooldown: 0.42,
     staminaCost: 3,
     knockback: 0.4
   },
@@ -20,7 +20,7 @@ export const WEAPONS = {
     damage: 40,
     range: 2.1,
     arc: 1.05,
-    cooldown: 0.48,
+    cooldown: 0.52,
     staminaCost: 7,
     knockback: 0.7
   },
@@ -30,7 +30,7 @@ export const WEAPONS = {
     damage: 70,
     range: 2.3,
     arc: 1.1,
-    cooldown: 0.68,
+    cooldown: 0.72,
     staminaCost: 12,
     knockback: 0.95
   },
@@ -40,7 +40,7 @@ export const WEAPONS = {
     damage: 50,
     range: 11.0,
     arc: 0.28,
-    cooldown: 0.36,
+    cooldown: 0.42,
     staminaCost: 2,
     knockback: 0.3
   },
@@ -50,7 +50,7 @@ export const WEAPONS = {
     damage: 115,
     range: 15.0,
     arc: 0.18,
-    cooldown: 0.75,
+    cooldown: 0.82,
     staminaCost: 3,
     knockback: 0.55
   }
@@ -66,28 +66,7 @@ export function getActiveZombies(activeChunks) {
   return list;
 }
 
-export function performAttack(player, activeChunks) {
-  if (player.dead || player.attackTimer > 0) return;
-  if (player.carryingCrate) {
-    dropHeavyCrate(player);
-  }
-
-  const weapon = WEAPONS[player.equippedWeapon] || WEAPONS.fists;
-  if (player.stamina < weapon.staminaCost) {
-    showToast('Too exhausted to attack!');
-    return;
-  }
-
-  player.stamina = Math.max(0, player.stamina - weapon.staminaCost);
-  player.attackTimer = weapon.cooldown;
-
-  const isBruiserMelee = player.archetype === 'bruiser' && weapon.type === 'melee';
-  const isMarksmanRanged = player.archetype === 'marksman' && weapon.type === 'ranged';
-
-  const dmgMult = isBruiserMelee ? 1.35 : isMarksmanRanged ? 1.25 : 1.0;
-  const effectiveRange = isMarksmanRanged ? weapon.range * 1.25 : weapon.range;
-  const kbMult = isBruiserMelee ? 1.4 : 1.0;
-
+function getTargetsInCone(player, activeChunks, weapon, effectiveRange) {
   const pScreen = worldToScreen(player.x, player.y, 0, 0);
   const candidates = [];
 
@@ -105,11 +84,9 @@ export function performAttack(player, activeChunks) {
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
 
-      // Point-blank enemies (< 1.15 tiles) in front of the player always register if line-of-sight is clear
       const withinCone = Math.abs(diff) <= weapon.arc || (dist < 1.15 && Math.abs(diff) <= 1.35);
       if (!withinCone) continue;
 
-      // Prevent striking or shooting zombies through walls or closed doors
       if (!hasLineOfSight(player.x, player.y, z.x, z.y, activeChunks)) continue;
 
       candidates.push({ chunk: c, index: i, z, dist });
@@ -117,6 +94,36 @@ export function performAttack(player, activeChunks) {
   }
 
   candidates.sort((a, b) => a.dist - b.dist);
+  return candidates;
+}
+
+export function performAttack(player, activeChunks, isAuto = false) {
+  if (player.dead || player.attackTimer > 0) return;
+
+  const weapon = WEAPONS[player.equippedWeapon] || WEAPONS.fists;
+  const isBruiserMelee = player.archetype === 'bruiser' && weapon.type === 'melee';
+  const isMarksmanRanged = player.archetype === 'marksman' && weapon.type === 'ranged';
+  const effectiveRange = isMarksmanRanged ? weapon.range * 1.25 : weapon.range;
+
+  const candidates = getTargetsInCone(player, activeChunks, weapon, effectiveRange);
+
+  // Auto-attack only triggers when an enemy is actually inside the aim cone & line-of-sight
+  if (isAuto && candidates.length === 0) return;
+
+  if (player.stamina < weapon.staminaCost) {
+    if (!isAuto) showToast('Too exhausted to attack!');
+    return;
+  }
+
+  if (player.carryingCrate) {
+    dropHeavyCrate(player);
+  }
+
+  player.stamina = Math.max(0, player.stamina - weapon.staminaCost);
+  player.attackTimer = weapon.cooldown;
+
+  const dmgMult = isBruiserMelee ? 1.35 : isMarksmanRanged ? 1.25 : 1.0;
+  const kbMult = isBruiserMelee ? 1.4 : 1.0;
   const hitTargets = weapon.type === 'ranged' ? candidates.slice(0, 1) : candidates;
 
   if (weapon.type === 'ranged') {
@@ -190,6 +197,12 @@ export function updateCombat(dt, player, activeChunks) {
   }
 
   const playerInSafeHub = isInsideQuarryHub(player.x, player.y);
+
+  // Auto-attack closest zombie(s) whenever aim cone faces a target in range & line-of-sight
+  if (!playerInSafeHub && !player.dead && player.attackTimer === 0) {
+    performAttack(player, activeChunks, true);
+  }
+
   const sightRange = player.isSprinting ? 10.5 : 7.0;
   const allZombies = getActiveZombies(activeChunks);
 
@@ -237,7 +250,6 @@ export function updateCombat(dt, player, activeChunks) {
           z.lostSightTimer = 0;
         }
       } else if (z.aggro) {
-        // Player broke line-of-sight (e.g., entered a room and closed the door)
         z.lostSightTimer = (z.lostSightTimer || 0) + dt;
         if (z.lostSightTimer >= 2.5) {
           z.aggro = false;
