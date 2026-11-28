@@ -25,6 +25,7 @@ import {
   lootedIds,
   killedZombieIds
 } from './chunks.js';
+import { initMapEditor } from './editor.js';
 import { sticks, keys, sprintHeld, initInput } from './input.js';
 import {
   inventory,
@@ -119,6 +120,10 @@ let nearWorkbench = false;
 const { toggleBag } = initInventory(player);
 spawnNextRescueFlare();
 
+initMapEditor(player, () => {
+  activeChunks = getActiveChunks(player.x, player.y, 1);
+});
+
 closeCraftBtn.addEventListener('click', () => {
   craftModal.classList.remove('open');
 });
@@ -168,7 +173,7 @@ document.querySelectorAll('.arch-btn').forEach((btn) => {
     archBadge.textContent = arch.toUpperCase();
     archModal.classList.add('hidden');
     player.started = true;
-    showToast('Exit the north Quarry gate onto S Marble St to explore Downtown & Suburbs!');
+    showToast('Tap the minimap anytime to inspect or edit the 2048×2048 world!');
   });
 });
 
