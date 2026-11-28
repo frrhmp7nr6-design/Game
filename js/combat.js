@@ -1,234 +1,259 @@
-import { worldToScreen, isTileBlocked, campUpgrades } from './map.js';
-import { killedZombieIds, isInsideQuarryHub } from './chunks.js';
+import { canWalkTo } from './map.js';
+import { isInsideQuarryHub, killedZombieIds } from './chunks.js';
+import { showToast } from './inventory.js';
 import { broadcastWorldEvent } from './net.js';
 
 export const WEAPONS = {
   fists: {
     name: 'Fists',
     type: 'melee',
-    range: 1.5,
     damage: 16,
-    cooldown: 0.62,
-    arc: 0.65,
-    staminaCost: 4
+    range: 1.35,
+    arc: 0.72,
+    cooldown: 0.42,
+    staminaCost: 4,
+    knockback: 0.35
   },
   crowbar: {
     name: 'Crowbar',
     type: 'melee',
-    range: 1.95,
-    damage: 36,
-    cooldown: 0.7,
-    arc: 0.72,
-    staminaCost: 7
+    damage: 38,
+    range: 1.75,
+    arc: 0.85,
+    cooldown: 0.52,
+    staminaCost: 8,
+    knockback: 0.65
   },
   axe: {
     name: 'Fire Axe',
     type: 'melee',
-    range: 2.2,
-    damage: 58,
-    cooldown: 0.84,
-    arc: 0.78,
-    staminaCost: 10
+    damage: 68,
+    range: 1.95,
+    arc: 0.9,
+    cooldown: 0.72,
+    staminaCost: 14,
+    knockback: 0.9
   },
   pistol: {
     name: '9mm Pistol',
     type: 'ranged',
-    range: 7.8,
-    damage: 50,
-    cooldown: 0.5,
-    arc: 0.42,
-    staminaCost: 1
+    damage: 48,
+    range: 10.5,
+    arc: 0.22,
+    cooldown: 0.38,
+    staminaCost: 2,
+    knockback: 0.28
+  },
+  rifle: {
+    name: 'Hunting Rifle',
+    type: 'ranged',
+    damage: 115,
+    range: 14.5,
+    arc: 0.14,
+    cooldown: 0.78,
+    staminaCost: 3,
+    knockback: 0.55
   }
 };
 
 export const fxList = [];
 
-function normalizeAngle(a) {
-  while (a > Math.PI) a -= Math.PI * 2;
-  while (a < -Math.PI) a += Math.PI * 2;
-  return a;
-}
-
-export function hasLineOfSight(x1, y1, x2, y2, activeChunks) {
-  const dist = Math.hypot(x2 - x1, y2 - y1);
-  const steps = Math.ceil(dist * 3);
-  for (let i = 1; i < steps; i++) {
-    const t = i / steps;
-    const tx = Math.floor(x1 + (x2 - x1) * t);
-    const ty = Math.floor(y1 + (y2 - y1) * t);
-    if (isTileBlocked(tx, ty, activeChunks)) return false;
-  }
-  return true;
-}
-
-function canZombieWalkTo(nx, ny, activeChunks) {
-  if (isInsideQuarryHub(nx, ny)) return false;
-
-  const r = 0.25;
-  const corners = [
-    [nx - r, ny - r],
-    [nx + r, ny - r],
-    [nx - r, ny + r],
-    [nx + r, ny + r]
-  ];
-  for (const [cx, cy] of corners) {
-    if (isTileBlocked(Math.floor(cx), Math.floor(cy), activeChunks)) return false;
-  }
-  return true;
-}
-
 export function getActiveZombies(activeChunks) {
   const list = [];
   for (const c of activeChunks) {
-    for (const z of c.zombies) {
-      if (!killedZombieIds.has(z.id)) list.push(z);
-    }
+    for (const z of c.zombies) list.push(z);
   }
   return list;
 }
 
+export function performAttack(player, activeChunks) {
+  if (player.dead || player.attackTimer > 0) return;
+  if (player.carryingCrate) {
+    showToast('Drop Heavy Crate before attacking!');
+    return;
+  }
+
+  const weapon = WEAPONS[player.equippedWeapon] || WEAPONS.fists;
+  if (player.stamina < weapon.staminaCost) {
+    showToast('Too exhausted to attack!');
+    return;
+  }
+
+  player.stamina = Math.max(0, player.stamina - weapon.staminaCost);
+  player.attackTimer = weapon.cooldown;
+
+  const isBruiserMelee = player.archetype === 'bruiser' && weapon.type === 'melee';
+  const isMarksmanRanged = player.archetype === 'marksman' && weapon.type === 'ranged';
+
+  const dmgMult = isBruiserMelee ? 1.35 : isMarksmanRanged ? 1.25 : 1.0;
+  const effectiveRange = isMarksmanRanged ? weapon.range * 1.25 : weapon.range;
+  const kbMult = isBruiserMelee ? 1.4 : 1.0;
+
+  const candidates = [];
+  for (const c of activeChunks) {
+    for (let i = 0; i < c.zombies.length; i++) {
+      const z = c.zombies[i];
+      const dx = z.x - player.x;
+      const dy = z.y - player.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > effectiveRange) continue;
+
+      const screenAng = Math.atan2((dx + dy) * 0.5, dx - dy);
+      let diff = screenAng - player.angle;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+
+      if (Math.abs(diff) <= weapon.arc) {
+        candidates.push({ chunk: c, index: i, z, dist });
+      }
+    }
+  }
+
+  candidates.sort((a, b) => a.dist - b.dist);
+  const hitTargets = weapon.type === 'ranged' ? candidates.slice(0, 1) : candidates;
+
+  if (weapon.type === 'ranged') {
+    const endX =
+      hitTargets.length > 0
+        ? hitTargets[0].z.x
+        : player.x + Math.cos(player.angle) * effectiveRange * 0.65;
+    const endY =
+      hitTargets.length > 0
+        ? hitTargets[0].z.y
+        : player.y + Math.sin(player.angle) * effectiveRange * 0.65;
+
+    fxList.push({
+      type: 'ranged',
+      fromX: player.x,
+      fromY: player.y,
+      toX: endX,
+      toY: endY,
+      life: 0.14,
+      maxLife: 0.14
+    });
+  } else {
+    fxList.push({
+      type: 'melee',
+      fromX: player.x,
+      fromY: player.y,
+      toX: player.x,
+      toY: player.y,
+      angle: player.angle,
+      life: 0.18,
+      maxLife: 0.18
+    });
+  }
+
+  for (let i = hitTargets.length - 1; i >= 0; i--) {
+    const { chunk, index, z } = hitTargets[i];
+    const finalDmg = Math.round(weapon.damage * dmgMult);
+    z.hp -= finalDmg;
+    z.hitFlash = 0.15;
+    z.aggro = true;
+
+    const ang = Math.atan2(z.y - player.y, z.x - player.x);
+    const kb = weapon.knockback * kbMult;
+    const kx = z.x + Math.cos(ang) * kb;
+    const ky = z.y + Math.sin(ang) * kb;
+    if (canWalkTo(kx, z.y, 0.26, activeChunks)) z.x = kx;
+    if (canWalkTo(z.x, ky, 0.26, activeChunks)) z.y = ky;
+
+    if (z.hp <= 0) {
+      killedZombieIds.add(z.id);
+      chunk.zombies.splice(index, 1);
+      broadcastWorldEvent({ kind: 'zombie_kill', id: z.id });
+
+      const scrapGain = z.isBoss ? 8 : z.kind === 'brute' ? 3 : 1;
+      player.scrap = (player.scrap || 0) + scrapGain;
+      if (z.isBoss) {
+        showToast(`👑 Juggernaut defeated! +${scrapGain} Scrap!`);
+      }
+    }
+  }
+}
+
 export function updateCombat(dt, player, activeChunks) {
-  player.hurtFlash = Math.max(0, (player.hurtFlash || 0) - dt);
+  if (player.attackTimer > 0) player.attackTimer = Math.max(0, player.attackTimer - dt);
+  if (player.hurtFlash > 0) player.hurtFlash = Math.max(0, player.hurtFlash - dt);
 
   for (let i = fxList.length - 1; i >= 0; i--) {
     fxList[i].life -= dt;
     if (fxList[i].life <= 0) fxList.splice(i, 1);
   }
 
-  player.attackTimer = Math.max(0, player.attackTimer - dt);
-  const weapon = WEAPONS[player.equippedWeapon] || WEAPONS.fists;
-  const effectiveRange =
-    weapon.type === 'ranged' && player.archetype === 'marksman' ? weapon.range * 1.25 : weapon.range;
-
-  const activeZombies = getActiveZombies(activeChunks);
-
-  if (player.attackTimer === 0 && player.stamina >= weapon.staminaCost) {
-    let bestTarget = null;
-    let bestDist = Infinity;
-    const pScreen = worldToScreen(player.x, player.y, 0, 0);
-
-    for (const z of activeZombies) {
-      const dist = Math.hypot(z.x - player.x, z.y - player.y);
-      if (dist > effectiveRange) continue;
-
-      const zScreen = worldToScreen(z.x, z.y, 0, 0);
-      const angleToZ = Math.atan2(zScreen.y - pScreen.y, zScreen.x - pScreen.x);
-      const angleDiff = Math.abs(normalizeAngle(angleToZ - player.angle));
-
-      if (angleDiff <= weapon.arc && hasLineOfSight(player.x, player.y, z.x, z.y, activeChunks)) {
-        if (dist < bestDist) {
-          bestDist = dist;
-          bestTarget = z;
-        }
-      }
-    }
-
-    if (bestTarget) {
-      let dmg = weapon.damage;
-      if (weapon.type === 'melee' && player.archetype === 'bruiser') dmg = Math.round(dmg * 1.35);
-      if (weapon.type === 'ranged' && player.archetype === 'marksman') dmg = Math.round(dmg * 1.25);
-      if (campUpgrades.armory) dmg = Math.round(dmg * 1.2);
-
-      bestTarget.hp -= dmg;
-      bestTarget.hitFlash = 0.16;
-      player.attackTimer = weapon.cooldown;
-      player.stamina = Math.max(0, player.stamina - weapon.staminaCost);
-
-      const kbAngle = Math.atan2(bestTarget.y - player.y, bestTarget.x - player.x);
-      const kbBase = weapon.type === 'melee' ? 0.35 : 0.15;
-      const kbDist = player.archetype === 'bruiser' ? kbBase * 1.4 : kbBase;
-      const kx = bestTarget.x + Math.cos(kbAngle) * kbDist;
-      const ky = bestTarget.y + Math.sin(kbAngle) * kbDist;
-      if (canZombieWalkTo(kx, ky, activeChunks)) {
-        bestTarget.x = kx;
-        bestTarget.y = ky;
-      }
-
-      fxList.push({
-        type: weapon.type,
-        fromX: player.x,
-        fromY: player.y,
-        toX: bestTarget.x,
-        toY: bestTarget.y,
-        angle: player.angle,
-        life: 0.16,
-        maxLife: 0.16
-      });
-    }
-  }
+  const playerInSafeHub = isInsideQuarryHub(player.x, player.y);
+  const sightRange = player.isSprinting ? 10.5 : 7.0;
 
   for (const c of activeChunks) {
-    for (let i = c.zombies.length - 1; i >= 0; i--) {
-      const z = c.zombies[i];
-      z.hitFlash = Math.max(0, z.hitFlash - dt);
-      z.attackCd = Math.max(0, z.attackCd - dt);
-      z.lungeTimer = Math.max(0, z.lungeTimer - dt);
+    for (const z of c.zombies) {
+      if (z.attackCd > 0) z.attackCd = Math.max(0, z.attackCd - dt);
+      if (z.hitFlash > 0) z.hitFlash = Math.max(0, z.hitFlash - dt);
+      if (z.lungeTimer > 0) z.lungeTimer = Math.max(0, z.lungeTimer - dt);
 
-      if (z.hp <= 0 || killedZombieIds.has(z.id)) {
-        if (!killedZombieIds.has(z.id)) {
-          killedZombieIds.add(z.id);
-          player.scrap = (player.scrap || 0) + (z.isBoss ? 8 : 1);
-          broadcastWorldEvent({ kind: 'zkill', id: z.id });
-        }
-        c.zombies.splice(i, 1);
-        continue;
+      const dx = player.x - z.x;
+      const dy = player.y - z.y;
+      const dist = Math.hypot(dx, dy);
+
+      if (playerInSafeHub) {
+        z.aggro = false;
+      } else if (dist < sightRange) {
+        z.aggro = true;
+      } else if (dist > 14.5) {
+        z.aggro = false;
       }
 
-      const dist = Math.hypot(player.x - z.x, player.y - z.y);
-      const canSee = dist < 9.5 && hasLineOfSight(z.x, z.y, player.x, player.y, activeChunks);
-      z.aggro = canSee;
-
-      if (canSee) {
-        const ang = Math.atan2(player.y - z.y, player.x - z.x);
-        z.facing = ang;
+      if (z.aggro && !playerInSafeHub) {
         if (dist > 0.72) {
-          z.walkPhase += dt * (z.kind === 'sprinter' ? 16 : 12);
-          const vx = Math.cos(ang) * z.speed * dt;
-          const vy = Math.sin(ang) * z.speed * dt;
-          if (canZombieWalkTo(z.x + vx, z.y, activeChunks)) z.x += vx;
-          if (canZombieWalkTo(z.x, z.y + vy, activeChunks)) z.y += vy;
+          const ang = Math.atan2(dy, dx);
+          z.facing = ang;
+          z.walkPhase = (z.walkPhase || 0) + dt * z.speed * 5.2;
+
+          const nx = z.x + Math.cos(ang) * z.speed * dt;
+          const ny = z.y + Math.sin(ang) * z.speed * dt;
+          if (!isInsideQuarryHub(nx, z.y) && canWalkTo(nx, z.y, 0.26, activeChunks)) z.x = nx;
+          if (!isInsideQuarryHub(z.x, ny) && canWalkTo(z.x, ny, 0.26, activeChunks)) z.y = ny;
+        } else if (z.attackCd === 0) {
+          const hitDmg = z.dmg || 12;
+          player.hp = Math.max(0, player.hp - hitDmg);
+          player.hurtFlash = 0.35;
+          z.attackCd = 0.95;
+          z.lungeTimer = 0.25;
+          z.facing = Math.atan2(dy, dx);
+
+          fxList.push({
+            type: 'bite',
+            fromX: z.x,
+            fromY: z.y,
+            toX: player.x,
+            toY: player.y,
+            dmg: hitDmg,
+            life: 0.45,
+            maxLife: 0.45
+          });
         }
       } else {
-        z.turnTimer -= dt;
+        z.turnTimer = (z.turnTimer || 1.5) - dt;
         if (z.turnTimer <= 0) {
-          z.wanderAng += (Math.random() - 0.5) * 2.4;
-          z.turnTimer = 1.2 + Math.random() * 1.4;
+          z.wanderAng = (z.wanderAng || 0) + (Math.random() - 0.5) * 2.4;
+          z.turnTimer = 1.6 + Math.random() * 2.2;
         }
-        z.facing = z.wanderAng;
-        z.walkPhase += dt * 7;
-        const vx = Math.cos(z.wanderAng) * 0.95 * dt;
-        const vy = Math.sin(z.wanderAng) * 0.95 * dt;
+        const wanderSpeed = z.speed * 0.32;
+        const wAng = z.wanderAng || 0;
+        z.facing = wAng;
+        z.walkPhase = (z.walkPhase || 0) + dt * wanderSpeed * 4.5;
 
-        let blocked = false;
-        if (canZombieWalkTo(z.x + vx, z.y, activeChunks)) z.x += vx;
-        else blocked = true;
-        if (canZombieWalkTo(z.x, z.y + vy, activeChunks)) z.y += vy;
-        else blocked = true;
-
-        if (blocked) {
-          z.wanderAng += Math.PI * 0.75;
-          z.turnTimer = 1.0;
+        const nx = z.x + Math.cos(wAng) * wanderSpeed * dt;
+        const ny = z.y + Math.sin(wAng) * wanderSpeed * dt;
+        if (!isInsideQuarryHub(nx, z.y) && canWalkTo(nx, z.y, 0.26, activeChunks)) {
+          z.x = nx;
+        } else {
+          z.wanderAng = wAng + Math.PI * 0.65;
         }
-      }
-
-      if (dist <= 0.96 && z.attackCd === 0 && hasLineOfSight(z.x, z.y, player.x, player.y, activeChunks)) {
-        const dmg = z.dmg || 12;
-        player.hp = Math.max(0, player.hp - dmg);
-        player.hurtFlash = 0.35;
-        z.attackCd = 1.1;
-        z.lungeTimer = 0.25;
-        z.facing = Math.atan2(player.y - z.y, player.x - z.x);
-
-        fxList.push({
-          type: 'bite',
-          fromX: z.x,
-          fromY: z.y,
-          toX: player.x,
-          toY: player.y,
-          dmg,
-          life: 0.45,
-          maxLife: 0.45
-        });
+        if (!isInsideQuarryHub(z.x, ny) && canWalkTo(z.x, ny, 0.26, activeChunks)) {
+          z.y = ny;
+        } else {
+          z.wanderAng = wAng - Math.PI * 0.65;
+        }
       }
     }
   }
