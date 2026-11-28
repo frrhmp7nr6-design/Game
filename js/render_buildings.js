@@ -80,6 +80,7 @@ export function drawExtrudedBlock(ctx, wx, wy, camX, camY, h, colors, alpha = 1)
   ctx.restore();
 }
 
+// Strict camera-side occlusion check so walls never flicker when walking past their front face
 function isThinWallOccluding(wall, player, camX, camY) {
   const midX = wall.orient === 'H' ? wall.x + 0.5 : wall.x;
   const midY = wall.orient === 'H' ? wall.y : wall.y + 0.5;
@@ -89,13 +90,14 @@ function isThinWallOccluding(wall, player, camX, camY) {
   const wDepth = wRot.rx + wRot.ry;
   const pDepth = pRot.rx + pRot.ry;
 
-  if (wDepth <= pDepth + 0.45) return false;
+  // Player must be at least 0.65 tiles behind the wall (away from camera)
+  if (wDepth <= pDepth + 0.65) return false;
 
   const wScreen = worldToScreen(midX, midY, camX, camY);
   const pScreen = worldToScreen(player.x, player.y, camX, camY);
   const dy = wScreen.y - pScreen.y;
   const dx = Math.abs(wScreen.x - pScreen.x);
-  return dy > 6 && dy < 48 && dx < 36;
+  return dy > 10 && dy < 44 && dx < 28;
 }
 
 export function drawThinWall(ctx, wall, building, camX, camY, player) {
@@ -141,7 +143,6 @@ export function drawThinWall(ctx, wall, building, camX, camY, player) {
     );
   }
 
-  // Rectangular isometric window & selective awning (fades to match wall alpha when occluded)
   if (wall.hasWindow) {
     const p1 =
       wall.orient === 'H'
@@ -182,7 +183,6 @@ export function drawThinWall(ctx, wall, building, camX, camY, player) {
     ctx.lineTo(mx, my - 28);
     ctx.stroke();
 
-    // Only draw awnings on designated storefront windows (wall.hasAwning)
     if (wall.hasAwning && pal?.awning && (wall.outSide === 'S' || wall.outSide === 'E')) {
       const a1 =
         wall.orient === 'H'
@@ -359,6 +359,54 @@ export function drawInteriorProp(ctx, prop, camX, camY) {
   }
 }
 
+// Framed storefront fascia sign mounted above the front commercial doorway (Smitty's parapet style)
+export function drawStorefrontFasciaSign(ctx, building, camX, camY) {
+  if (building.category !== 'commercial') return;
+
+  const bx1 = building.x1;
+  const bx2 = building.x2 + 1;
+  const by2 = building.y2 + 1;
+  const midX = (bx1 + bx2) / 2;
+
+  const sLeft = worldToScreen(midX - 2.2, by2 + 0.04, camX, camY);
+  const sRight = worldToScreen(midX + 2.2, by2 + 0.04, camX, camY);
+  const topZ = 52;
+  const botZ = 38;
+
+  ctx.save();
+  // Backing signboard panel mounted above front door
+  ctx.fillStyle = '#f8fafc';
+  ctx.beginPath();
+  ctx.moveTo(sLeft.x, sLeft.y - topZ);
+  ctx.lineTo(sRight.x, sRight.y - topZ);
+  ctx.lineTo(sRight.x, sRight.y - botZ);
+  ctx.lineTo(sLeft.x, sLeft.y - botZ);
+  ctx.closePath();
+  ctx.fill();
+
+  // Dark outer & inner sign border (Smitty's architectural sign style)
+  ctx.strokeStyle = '#0f172a';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Skewed isometric sign typography aligned to the front facade slope
+  const cx = (sLeft.x + sRight.x) / 2;
+  const cy = (sLeft.y + sRight.y) / 2 - (topZ + botZ) / 2;
+  const dx = sRight.x - sLeft.x;
+  const dy = sRight.y - sLeft.y;
+  const angle = Math.atan2(dy, dx);
+
+  ctx.translate(cx, cy);
+  ctx.rotate(angle);
+  ctx.font = '900 9px -apple-system, sans-serif';
+  ctx.fillStyle = building.id === 'rockmart-pd' ? '#0369a1' : '#0f172a';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const label = building.name.replace(/\s*\(.*?\)\s*/g, '').toUpperCase();
+  ctx.fillText(label, 0, 0.5);
+  ctx.restore();
+}
+
 export function drawRoofCap(ctx, building, camX, camY) {
   const pal = building.palette || {
     wallL: '#475569',
@@ -371,7 +419,6 @@ export function drawRoofCap(ctx, building, camX, camY) {
   const wallH = 42;
 
   if (building.roofStyle === 'parapet') {
-    // Draw flat roof deck across full building footprint
     const bx1 = building.x1;
     const by1 = building.y1;
     const bx2 = building.x2 + 1;
@@ -394,7 +441,6 @@ export function drawRoofCap(ctx, building, camX, camY) {
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
-    // Raised 3D parapet walls rising 8px above the roof deck on guarded sides (leaving 1-2 open drop-off edges)
     const pSides = building.parapetSides || ['N', 'W', 'S'];
     const pColors = { left: pal.wallL, right: pal.wallR, top: pal.trim || '#cbd5e1' };
     const pH = 8;
@@ -413,7 +459,6 @@ export function drawRoofCap(ctx, building, camX, camY) {
       drawIsoBox(ctx, bx1, by2 - pThick, bx2, by2, wallH, pH, camX, camY, pColors, 1);
     }
 
-    // Rooftop HVAC unit
     const cx = (bx1 + bx2) / 2;
     const cy = (by1 + by2) / 2;
     drawIsoBox(ctx, cx - 1.1, cy - 1.1, cx + 1.1, cy + 1.1, wallH, 7, camX, camY, {
@@ -421,6 +466,9 @@ export function drawRoofCap(ctx, building, camX, camY) {
       right: '#64748b',
       top: '#cbd5e1'
     });
+
+    // Draw the framed storefront fascia sign above the front door instead of floating on the roof
+    drawStorefrontFasciaSign(ctx, building, camX, camY);
   } else {
     for (const r of rects) {
       const x1 = r.x1;
@@ -532,12 +580,4 @@ export function drawRoofCap(ctx, building, camX, camY) {
       }
     }
   }
-
-  const midX = (building.x1 + building.x2 + 1) / 2;
-  const midY = (building.y1 + building.y2 + 1) / 2;
-  const center = worldToScreen(midX, midY, camX, camY);
-  ctx.font = 'bold 11px -apple-system, sans-serif';
-  ctx.fillStyle = building.id === 'rockmart-pd' ? '#38bdf8' : 'rgba(241, 245, 249, 0.94)';
-  ctx.textAlign = 'center';
-  ctx.fillText(building.name.toUpperCase(), center.x, center.y - 68);
 }
