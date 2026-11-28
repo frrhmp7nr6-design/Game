@@ -80,7 +80,7 @@ export function drawExtrudedBlock(ctx, wx, wy, camX, camY, h, colors, alpha = 1)
   ctx.restore();
 }
 
-// Checks if a thin edge wall lies strictly on the camera side of a unit and overlaps its sprite
+// Fade a thin wall ONLY when the player is genuinely behind it on the opposite side from the camera
 function isThinWallOccluding(wall, player, camX, camY) {
   const midX = wall.orient === 'H' ? wall.x + 0.5 : wall.x;
   const midY = wall.orient === 'H' ? wall.y : wall.y + 0.5;
@@ -90,14 +90,14 @@ function isThinWallOccluding(wall, player, camX, camY) {
   const wDepth = wRot.rx + wRot.ry;
   const pDepth = pRot.rx + pRot.ry;
 
-  // Never fade walls behind the player
-  if (wDepth <= pDepth + 0.15) return false;
+  // Require at least +0.45 isometric depth closer to camera so standing against the front never fades it
+  if (wDepth <= pDepth + 0.45) return false;
 
   const wScreen = worldToScreen(midX, midY, camX, camY);
   const pScreen = worldToScreen(player.x, player.y, camX, camY);
   const dy = wScreen.y - pScreen.y;
   const dx = Math.abs(wScreen.x - pScreen.x);
-  return dy > 2 && dy < 48 && dx < 38;
+  return dy > 6 && dy < 48 && dx < 36;
 }
 
 export function drawThinWall(ctx, wall, building, camX, camY, player) {
@@ -110,9 +110,7 @@ export function drawThinWall(ctx, wall, building, camX, camY, player) {
 
   const occluding = isThinWallOccluding(wall, player, camX, camY);
   const alpha = occluding ? 0.25 : 1;
-  // Interior partitions are slightly lower (34px) than exterior walls (42px) so room layouts read clearly
   const h = wall.isExterior ? 42 : 34;
-  // ~5 inch thin wall thickness (0.11 of a 4.5-ft tile)
   const thick = 0.11;
 
   if (wall.orient === 'H') {
@@ -145,19 +143,73 @@ export function drawThinWall(ctx, wall, building, camX, camY, player) {
     );
   }
 
-  // Draw recessed glass/boarded window pane on exterior walls when not faded
+  // Rectangular isometric window + optional storefront awning (replaces blue circles)
   if (wall.hasWindow && !occluding) {
-    const midX = wall.orient === 'H' ? wall.x + 0.5 : wall.x;
-    const midY = wall.orient === 'H' ? wall.y : wall.y + 0.5;
-    const wp = worldToScreen(midX, midY, camX, camY);
+    const p1 =
+      wall.orient === 'H'
+        ? worldToScreen(wall.x + 0.22, wall.y, camX, camY)
+        : worldToScreen(wall.x, wall.y + 0.22, camX, camY);
+    const p2 =
+      wall.orient === 'H'
+        ? worldToScreen(wall.x + 0.78, wall.y, camX, camY)
+        : worldToScreen(wall.x, wall.y + 0.78, camX, camY);
+
     ctx.save();
+    // Dark window sill & frame
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y - 12);
+    ctx.lineTo(p2.x, p2.y - 12);
+    ctx.lineTo(p2.x, p2.y - 29);
+    ctx.lineTo(p1.x, p1.y - 29);
+    ctx.closePath();
+    ctx.fill();
+
+    // Recessed glass pane or wooden barricade planks
     ctx.fillStyle = wall.isBoarded ? '#92400e' : '#38bdf8';
     ctx.beginPath();
-    ctx.arc(wp.x, wp.y - 22, 4.5, 0, Math.PI * 2);
+    ctx.moveTo(p1.x + (p2.x - p1.x) * 0.1, p1.y + (p2.y - p1.y) * 0.1 - 14);
+    ctx.lineTo(p2.x - (p2.x - p1.x) * 0.1, p2.y - (p2.y - p1.y) * 0.1 - 14);
+    ctx.lineTo(p2.x - (p2.x - p1.x) * 0.1, p2.y - (p2.y - p1.y) * 0.1 - 27);
+    ctx.lineTo(p1.x + (p2.x - p1.x) * 0.1, p1.y + (p2.y - p1.y) * 0.1 - 27);
+    ctx.closePath();
     ctx.fill();
+
+    // Window center mullion bar
+    const mx = (p1.x + p2.x) / 2;
+    const my = (p1.y + p2.y) / 2;
     ctx.strokeStyle = '#0f172a';
     ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(mx, my - 13);
+    ctx.lineTo(mx, my - 28);
     ctx.stroke();
+
+    // Commercial storefront awning over exterior windows
+    if (building?.category === 'commercial' && pal?.awning) {
+      const a1 =
+        wall.orient === 'H'
+          ? worldToScreen(wall.x + 0.05, wall.y, camX, camY)
+          : worldToScreen(wall.x, wall.y + 0.05, camX, camY);
+      const a2 =
+        wall.orient === 'H'
+          ? worldToScreen(wall.x + 0.95, wall.y, camX, camY)
+          : worldToScreen(wall.x, wall.y + 0.95, camX, camY);
+      const outX = wall.orient === 'H' ? -8 : 8;
+      const outY = 6;
+
+      ctx.fillStyle = pal.awning;
+      ctx.beginPath();
+      ctx.moveTo(a1.x, a1.y - 34);
+      ctx.lineTo(a2.x, a2.y - 34);
+      ctx.lineTo(a2.x + outX, a2.y - 26 + outY);
+      ctx.lineTo(a1.x + outX, a1.y - 26 + outY);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
     ctx.restore();
   }
 }
@@ -184,7 +236,6 @@ export function drawEdgeDoor(ctx, door, camX, camY, isHighlighted) {
       : { left: '#78350f', right: '#92400e', top: '#b45309' };
 
   if (door.state === 'open') {
-    // Swung-open door leaf perpendicular to the doorway
     if (door.orient === 'H') {
       drawIsoBox(ctx, door.x + 0.05, door.y, door.x + 0.18, door.y + 0.85, 0, 34, camX, camY, palette, 0.85);
     } else {
