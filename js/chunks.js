@@ -6,7 +6,8 @@ export const WORLD_CHUNKS = 64; // 64 x 64 chunks = 2048 x 2048 tiles
 export const MAP_SIZE = CHUNK_SIZE * WORLD_CHUNKS; // 2048
 export const CENTER = 1024;
 
-export const QUARRY_X = 1024;
+// Centered at 1008 (31 * 32 + 16) so the entire Quarry Safe Hub sits cleanly inside chunk (31, 45)
+export const QUARRY_X = 1008;
 export const QUARRY_Y = 1460;
 export const QUARRY_RX = 46;
 export const QUARRY_RY = 38;
@@ -98,7 +99,7 @@ export function classifyRoad(wx, wy) {
     }
   }
 
-  const marbleX = 1024 + (wy < 1100 ? (1100 - wy) * 0.12 : 0);
+  const marbleX = QUARRY_X + (wy < 1100 ? (1100 - wy) * 0.14 : 0);
   if (wy >= 515 && wy <= 1435 && Math.abs(wx - marbleX) <= 1.9) {
     return { tile: 3, kind: 'avenue' };
   }
@@ -142,10 +143,10 @@ export function classifyRoad(wx, wy) {
     if (Math.abs(wy - morganY) <= 1.5) return { tile: 3, kind: 'rural' };
   }
   if (wy > 1420 && wx > 960 && wx < 1300) {
-    const hutchinsX = 1024 + (wy - 1420) * 0.32 + Math.sin(wy * 0.015) * 24;
+    const hutchinsX = QUARRY_X + (wy - 1420) * 0.32 + Math.sin(wy * 0.015) * 24;
     if (Math.abs(wx - hutchinsX) <= 1.5) return { tile: 3, kind: 'rural' };
   }
-  if (wx >= 1024 && wx <= 1880) {
+  if (wx >= QUARRY_X && wx <= 1880) {
     const southCountyY = 1320 + Math.sin(wx * 0.008) * 24;
     if (Math.abs(wy - southCountyY) <= 1.5) return { tile: 3, kind: 'rural' };
   }
@@ -400,8 +401,8 @@ function generateChunk(cx, cy) {
     }
   }
 
-  // 1. Quarry Safe Hub Buildings (stamped strictly in canonical chunk (31, 45) so adjacent chunks never duplicate walls over doors)
-  const gCx = Math.floor((QUARRY_X - 1) / CHUNK_SIZE); // 31
+  // 1. Quarry Safe Hub Buildings (all coordinates 993..1023 sit inside chunk (31, 45) with zero seam overlap)
+  const gCx = Math.floor(QUARRY_X / CHUNK_SIZE); // 31
   const gCy = Math.floor(QUARRY_Y / CHUNK_SIZE); // 45
   if (cx === gCx && cy === gCy) {
     stampThinWallBuilding(chunk, {
@@ -499,14 +500,14 @@ function generateChunk(cx, cy) {
       color: '#94a3b8'
     });
 
-    addChunkZombie(chunk, 'z-pd-1', 1123.5, 913.5, 2, false);
-    addChunkZombie(chunk, 'z-pd-2', 1129.5, 913.5, 2, false);
+    addChunkZombie(chunk, 'z-pd-1', 1123.5, 914.5, 2, false);
+    addChunkZombie(chunk, 'z-pd-2', 1129.5, 914.5, 2, false);
     populateEnvironmentProps(chunk, 'downtown');
     applyEditorOverridesToChunk(chunk);
     return chunk;
   }
 
-  // 3. District Procedural Floorplans (1BR/1BA, 3BR/2BA + Garage, 4BR/3BA Mansion, Storefronts & Sheds)
+  // 3. District Procedural Floorplans (1BR/1BA, 3BR/2BA + Garage, 4BR/3BA Mansion, Apartments, High-Rises & Storefronts)
   const midX = baseX + 16;
   const midY = baseY + 16;
   const district = getDistrictAt(midX, midY);
@@ -533,16 +534,25 @@ function generateChunk(cx, cy) {
       const lots = [];
       const roll = hash2d(cx * 7, cy * 13);
 
-      if (isDowntown || isHighwayStrip) {
+      if (isDowntown) {
+        if (roll > 0.72) {
+          lots.push({ bx: baseX + 4, by: baseY + 4, tier: 'highrise', w: 11, h: 10, s: roll });
+        } else if (roll > 0.44) {
+          lots.push({ bx: baseX + 4, by: baseY + 4, tier: 'apartments', w: 11, h: 9, s: roll });
+        } else {
+          lots.push({ bx: baseX + 4, by: baseY + 4, tier: 'commercial', w: 9, h: 8, s: roll });
+          lots.push({
+            bx: baseX + 17,
+            by: baseY + 16,
+            tier: roll > 0.25 ? 'cottage_1br' : 'commercial',
+            w: 9,
+            h: 8,
+            s: hash2d(cx * 19, cy * 23)
+          });
+        }
+      } else if (isHighwayStrip) {
         lots.push({ bx: baseX + 4, by: baseY + 4, tier: 'commercial', w: 9, h: 8, s: roll });
-        lots.push({
-          bx: baseX + 17,
-          by: baseY + 16,
-          tier: isDowntown && roll > 0.65 ? 'cottage_1br' : 'commercial',
-          w: 9,
-          h: 8,
-          s: hash2d(cx * 19, cy * 23)
-        });
+        lots.push({ bx: baseX + 17, by: baseY + 16, tier: 'commercial', w: 9, h: 8, s: hash2d(cx * 19, cy * 23) });
       } else if (isSuburb) {
         if (roll > 0.82) {
           lots.push({ bx: baseX + 5, by: baseY + 5, tier: 'mansion', w: 15, h: 12, s: roll });
@@ -608,7 +618,7 @@ function generateChunk(cx, cy) {
 
         const namePool = lot.rural
           ? ruralNames
-          : lot.tier === 'commercial'
+          : lot.tier === 'commercial' || lot.tier === 'highrise' || lot.tier === 'apartments'
           ? commNames
           : houseNames;
         const bName = namePool[Math.floor(hash2d(cx * 3 + idx, cy * 7) * namePool.length)];
@@ -627,12 +637,12 @@ function generateChunk(cx, cy) {
         res.lootSpots.forEach((spot, sIdx) => {
           const item =
             spot.room === 'bathroom'
-              ? { name: 'Bandage', type: 'med', hunger: 0, hp: 40, color: '#f8fafc' }
+              ? { name: 'Bandage', type: 'med', hunger: 0, hp: 40, color: '#f8fafc', floor: spot.floor || 0 }
               : spot.room === 'garage' || spot.room === 'stockroom'
               ? zone.ring === 3
-                ? { name: 'Prototype Convoy Core', type: 'heavy', value: 6, color: '#e879f9' }
-                : { name: 'Scrap Plating', type: 'convoy', value: 1, color: '#22d3ee' }
-              : { name: 'MRE Pack', type: 'food', hunger: 55, hp: 10, color: '#eab308' };
+                ? { name: 'Prototype Convoy Core', type: 'heavy', value: 6, color: '#e879f9', floor: spot.floor || 0 }
+                : { name: 'Scrap Plating', type: 'convoy', value: 1, color: '#22d3ee', floor: spot.floor || 0 }
+              : { name: 'MRE Pack', type: 'food', hunger: 55, hp: 10, color: '#eab308', floor: spot.floor || 0 };
 
           addChunkLoot(chunk, `loot-${cx}-${cy}-${idx}-${sIdx}`, spot.x, spot.y, item);
         });
@@ -667,11 +677,43 @@ function generateChunk(cx, cy) {
 
 function addChunkLoot(chunk, id, x, y, props) {
   if (lootedIds.has(id)) return;
-  chunk.loot.push({ id, x, y, ...props });
+  chunk.loot.push({ id, x, y, floor: props.floor || 0, ...props });
+}
+
+function isSpawnBlockedByProp(chunk, wx, wy) {
+  const r = 0.35;
+  for (const b of chunk.buildings) {
+    if (!b.props) continue;
+    for (const p of b.props) {
+      if (!p.solid) continue;
+      if (wx + r > p.x && wx - r < p.x + (p.w || 1) && wy + r > p.y && wy - r < p.y + (p.d || 1)) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 function addChunkZombie(chunk, id, x, y, ring, isBoss = false) {
   if (killedZombieIds.has(id)) return;
+
+  // Nudge spawn point if it overlaps solid interior furniture
+  let spawnX = x;
+  let spawnY = y;
+  if (isSpawnBlockedByProp(chunk, spawnX, spawnY)) {
+    const offsets = [
+      [1, 0], [-1, 0], [0, 1], [0, -1],
+      [1, 1], [-1, 1], [1, -1], [-1, -1]
+    ];
+    for (const [ox, oy] of offsets) {
+      if (!isSpawnBlockedByProp(chunk, x + ox, y + oy)) {
+        spawnX = x + ox;
+        spawnY = y + oy;
+        break;
+      }
+    }
+  }
+
   const tier = isBoss
     ? { kind: 'juggernaut', hp: 450, speed: 2.0, dmg: 28, color: '#a21caf', scale: 1.55, isBoss: true }
     : ring === 1
@@ -680,11 +722,12 @@ function addChunkZombie(chunk, id, x, y, ring, isBoss = false) {
     ? { kind: 'sprinter', hp: 120, speed: 2.55, dmg: 15, color: '#ca8a04', scale: 1.05, isBoss: false }
     : { kind: 'brute', hp: 210, speed: 1.75, dmg: 22, color: '#991b1b', scale: 1.25, isBoss: false };
 
-  const ang = hash2d(Math.floor(x * 7), Math.floor(y * 11)) * Math.PI * 2;
+  const ang = hash2d(Math.floor(spawnX * 7), Math.floor(spawnY * 11)) * Math.PI * 2;
   chunk.zombies.push({
     id,
-    x,
-    y,
+    x: spawnX,
+    y: spawnY,
+    floor: 0,
     hp: tier.hp,
     maxHp: tier.hp,
     speed: tier.speed,
