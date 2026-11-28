@@ -141,7 +141,7 @@ export function drawThinWall(ctx, wall, building, camX, camY, player) {
     );
   }
 
-  // Rectangular isometric window & outward-facing awning (fades to match wall alpha when occluded)
+  // Rectangular isometric window & selective awning (fades to match wall alpha when occluded)
   if (wall.hasWindow) {
     const p1 =
       wall.orient === 'H'
@@ -182,8 +182,8 @@ export function drawThinWall(ctx, wall, building, camX, camY, player) {
     ctx.lineTo(mx, my - 28);
     ctx.stroke();
 
-    // Project commercial awnings strictly OUTWARD from the building using outSide ('S' or 'E')
-    if (building?.category === 'commercial' && pal?.awning && (wall.outSide === 'S' || wall.outSide === 'E')) {
+    // Only draw awnings on designated storefront windows (wall.hasAwning)
+    if (wall.hasAwning && pal?.awning && (wall.outSide === 'S' || wall.outSide === 'E')) {
       const a1 =
         wall.orient === 'H'
           ? worldToScreen(wall.x + 0.05, wall.y, camX, camY)
@@ -370,39 +370,69 @@ export function drawRoofCap(ctx, building, camX, camY) {
   const rects = building.rects || [{ x1: building.x1, y1: building.y1, x2: building.x2, y2: building.y2 }];
   const wallH = 42;
 
-  for (const r of rects) {
-    const x1 = r.x1;
-    const y1 = r.y1;
-    const x2 = r.x2 + 1;
-    const y2 = r.y2 + 1;
+  if (building.roofStyle === 'parapet') {
+    // Draw flat roof deck across full building footprint
+    const bx1 = building.x1;
+    const by1 = building.y1;
+    const bx2 = building.x2 + 1;
+    const by2 = building.y2 + 1;
 
-    const nw = worldToScreen(x1, y1, camX, camY);
-    const ne = worldToScreen(x2, y1, camX, camY);
-    const se = worldToScreen(x2, y2, camX, camY);
-    const sw = worldToScreen(x1, y2, camX, camY);
+    const nw = worldToScreen(bx1, by1, camX, camY);
+    const ne = worldToScreen(bx2, by1, camX, camY);
+    const se = worldToScreen(bx2, by2, camX, camY);
+    const sw = worldToScreen(bx1, by2, camX, camY);
 
-    if (building.roofStyle === 'parapet') {
-      const rimH = wallH + 6;
-      ctx.fillStyle = pal.roofR;
-      ctx.beginPath();
-      ctx.moveTo(nw.x, nw.y - rimH);
-      ctx.lineTo(ne.x, ne.y - rimH);
-      ctx.lineTo(se.x, se.y - rimH);
-      ctx.lineTo(sw.x, sw.y - rimH);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = pal.wallL;
-      ctx.lineWidth = 3;
-      ctx.stroke();
+    ctx.fillStyle = pal.roofR;
+    ctx.beginPath();
+    ctx.moveTo(nw.x, nw.y - wallH);
+    ctx.lineTo(ne.x, ne.y - wallH);
+    ctx.lineTo(se.x, se.y - wallH);
+    ctx.lineTo(sw.x, sw.y - wallH);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(15, 23, 42, 0.6)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
 
-      const cx = (x1 + x2) / 2;
-      const cy = (y1 + y2) / 2;
-      drawIsoBox(ctx, cx - 1.2, cy - 1.2, cx + 1.2, cy + 1.2, rimH - 2, 7, camX, camY, {
-        left: '#94a3b8',
-        right: '#64748b',
-        top: '#cbd5e1'
-      });
-    } else {
+    // Raised 3D parapet walls rising 8px above the roof deck on guarded sides (leaving 1-2 open drop-off edges)
+    const pSides = building.parapetSides || ['N', 'W', 'S'];
+    const pColors = { left: pal.wallL, right: pal.wallR, top: pal.trim || '#cbd5e1' };
+    const pH = 8;
+    const pThick = 0.16;
+
+    if (pSides.includes('N')) {
+      drawIsoBox(ctx, bx1, by1, bx2, by1 + pThick, wallH, pH, camX, camY, pColors, 1);
+    }
+    if (pSides.includes('W')) {
+      drawIsoBox(ctx, bx1, by1, bx1 + pThick, by2, wallH, pH, camX, camY, pColors, 1);
+    }
+    if (pSides.includes('E')) {
+      drawIsoBox(ctx, bx2 - pThick, by1, bx2, by2, wallH, pH, camX, camY, pColors, 1);
+    }
+    if (pSides.includes('S')) {
+      drawIsoBox(ctx, bx1, by2 - pThick, bx2, by2, wallH, pH, camX, camY, pColors, 1);
+    }
+
+    // Rooftop HVAC unit
+    const cx = (bx1 + bx2) / 2;
+    const cy = (by1 + by2) / 2;
+    drawIsoBox(ctx, cx - 1.1, cy - 1.1, cx + 1.1, cy + 1.1, wallH, 7, camX, camY, {
+      left: '#94a3b8',
+      right: '#64748b',
+      top: '#cbd5e1'
+    });
+  } else {
+    for (const r of rects) {
+      const x1 = r.x1;
+      const y1 = r.y1;
+      const x2 = r.x2 + 1;
+      const y2 = r.y2 + 1;
+
+      const nw = worldToScreen(x1, y1, camX, camY);
+      const ne = worldToScreen(x2, y1, camX, camY);
+      const se = worldToScreen(x2, y2, camX, camY);
+      const sw = worldToScreen(x1, y2, camX, camY);
+
       const spanX = x2 - x1;
       const spanY = y2 - y1;
       const ridgeH = wallH + Math.min(24, Math.max(14, Math.min(spanX, spanY) * 2.0));
