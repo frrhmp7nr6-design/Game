@@ -400,8 +400,10 @@ function generateChunk(cx, cy) {
     }
   }
 
-  // 1. Quarry Safe Hub Buildings (with thin walls & interior rooms)
-  if (Math.abs(baseX + 16 - QUARRY_X) <= 48 && Math.abs(baseY + 16 - QUARRY_Y) <= 48) {
+  // 1. Quarry Safe Hub Buildings (stamped strictly in canonical chunk (31, 45) so adjacent chunks never duplicate walls over doors)
+  const gCx = Math.floor((QUARRY_X - 1) / CHUNK_SIZE); // 31
+  const gCy = Math.floor(QUARRY_Y / CHUNK_SIZE); // 45
+  if (cx === gCx && cy === gCy) {
     stampThinWallBuilding(chunk, {
       id: 'quarry-garage',
       name: 'Convoy Garage',
@@ -431,36 +433,32 @@ function generateChunk(cx, cy) {
       defaultRevealed: true
     });
 
-    const gCx = Math.floor(QUARRY_X / CHUNK_SIZE);
-    const gCy = Math.floor(QUARRY_Y / CHUNK_SIZE);
-    if (cx === gCx && cy === gCy) {
-      addChunkLoot(chunk, 'q-crowbar', QUARRY_X - 3.5, QUARRY_Y - 1.5, {
-        name: 'Crowbar',
-        type: 'weapon',
-        weaponId: 'crowbar',
-        color: '#38bdf8'
-      });
-      addChunkLoot(chunk, 'q-beans', QUARRY_X - 2.5, QUARRY_Y - 2.5, {
-        name: 'Canned Beans',
-        type: 'food',
-        hunger: 35,
-        hp: 5,
-        color: '#f97316'
-      });
-      addChunkLoot(chunk, 'q-pick', QUARRY_X - 4.5, QUARRY_Y - 0.5, {
-        name: 'Lockpick Set',
-        type: 'tool',
-        toolId: 'lockpick',
-        color: '#fbbf24'
-      });
-      addChunkLoot(chunk, 'q-med', QUARRY_X + 10.5, QUARRY_Y - 11.5, {
-        name: 'First Aid Kit',
-        type: 'med',
-        hunger: 0,
-        hp: 65,
-        color: '#f8fafc'
-      });
-    }
+    addChunkLoot(chunk, 'q-crowbar', QUARRY_X - 3.5, QUARRY_Y - 1.5, {
+      name: 'Crowbar',
+      type: 'weapon',
+      weaponId: 'crowbar',
+      color: '#38bdf8'
+    });
+    addChunkLoot(chunk, 'q-beans', QUARRY_X - 2.5, QUARRY_Y - 2.5, {
+      name: 'Canned Beans',
+      type: 'food',
+      hunger: 35,
+      hp: 5,
+      color: '#f97316'
+    });
+    addChunkLoot(chunk, 'q-pick', QUARRY_X - 4.5, QUARRY_Y - 0.5, {
+      name: 'Lockpick Set',
+      type: 'tool',
+      toolId: 'lockpick',
+      color: '#fbbf24'
+    });
+    addChunkLoot(chunk, 'q-med', QUARRY_X + 10.5, QUARRY_Y - 11.5, {
+      name: 'First Aid Kit',
+      type: 'med',
+      hunger: 0,
+      hp: 65,
+      color: '#f8fafc'
+    });
   }
 
   // 2. Rockmart Police Precinct (Multi-room station with Armory, Dispatch & Cells)
@@ -547,19 +545,15 @@ function generateChunk(cx, cy) {
         });
       } else if (isSuburb) {
         if (roll > 0.82) {
-          // Luxury 4BR/3BA Estate Mansion + 2-Car Garage
           lots.push({ bx: baseX + 5, by: baseY + 5, tier: 'mansion', w: 15, h: 12, s: roll });
         } else if (roll > 0.32) {
-          // 3BR/2BA Family Home + Attached Garage
           lots.push({ bx: baseX + 4, by: baseY + 4, tier: 'family_3br', w: 11, h: 9, s: roll });
           lots.push({ bx: baseX + 18, by: baseY + 17, tier: 'cottage_1br', w: 7, h: 6, s: hash2d(cx * 11, cy * 7) });
         } else {
-          // Pair of 1BR/1BA Starter Cottages
           lots.push({ bx: baseX + 4, by: baseY + 5, tier: 'cottage_1br', w: 7, h: 6, s: roll });
           lots.push({ bx: baseX + 17, by: baseY + 17, tier: 'cottage_1br', w: 7, h: 6, s: hash2d(cx * 5, cy * 3) });
         }
       } else {
-        // Rural Homestead (1BR Cabin or 3BR Farmhouse)
         const tier = roll > 0.55 ? 'family_3br' : 'cottage_1br';
         lots.push({
           bx: baseX + 6,
@@ -630,7 +624,6 @@ function generateChunk(cx, cy) {
           seed: lot.s
         });
 
-        // Room-matched loot spawns
         res.lootSpots.forEach((spot, sIdx) => {
           const item =
             spot.room === 'bathroom'
