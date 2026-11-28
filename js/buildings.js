@@ -17,25 +17,15 @@ const COMMERCIAL_PALETTES = [
   { name: 'Midtown Stone', wallL: '#57534e', wallR: '#44403c', roofL: '#292524', roofR: '#1c1917', awning: '#7c3aed', floor: '#44403c' }
 ];
 
-export function makeEdgeKey(x, y, side) {
-  if (side === 'N') return `H:${x},${y}`;
-  if (side === 'S') return `H:${x},${y + 1}`;
-  if (side === 'W') return `V:${x},${y}`;
-  return `V:${x + 1},${y}`;
+export function makeEdgeKey(x, y, side, floor = 0) {
+  const prefix = floor === 0 ? '' : `F${floor}:`;
+  if (side === 'N') return `${prefix}H:${x},${y}`;
+  if (side === 'S') return `${prefix}H:${x},${y + 1}`;
+  if (side === 'W') return `${prefix}V:${x},${y}`;
+  return `${prefix}V:${x + 1},${y}`;
 }
 
-export function stampThinWallBuilding(chunk, config) {
-  const {
-    id,
-    name,
-    category,
-    rooms,
-    doorSpecs,
-    seed = 0.5,
-    defaultRevealed = false,
-    porchRect = null
-  } = config;
-
+function buildFloorLevel(chunk, bldgId, category, floorNum, rooms, doorSpecs, stairs = []) {
   const CHUNK_SIZE = 32;
   const baseX = chunk.cx * CHUNK_SIZE;
   const baseY = chunk.cy * CHUNK_SIZE;
@@ -58,43 +48,39 @@ export function stampThinWallBuilding(chunk, config) {
         if (x > maxX) maxX = x;
         if (y > maxY) maxY = y;
 
-        const lx = x - baseX;
-        const ly = y - baseY;
-        if (lx >= 0 && lx < CHUNK_SIZE && ly >= 0 && ly < CHUNK_SIZE) {
-          chunk.tiles[ly * CHUNK_SIZE + lx] = rm.floorTile || 1;
+        if (floorNum === 0) {
+          const lx = x - baseX;
+          const ly = y - baseY;
+          if (lx >= 0 && lx < CHUNK_SIZE && ly >= 0 && ly < CHUNK_SIZE) {
+            chunk.tiles[ly * CHUNK_SIZE + lx] = rm.floorTile || 1;
+          }
         }
       }
     }
   });
 
-  const palette =
-    category === 'commercial'
-      ? COMMERCIAL_PALETTES[Math.floor(seed * 97) % COMMERCIAL_PALETTES.length]
-      : HOUSE_PALETTES[Math.floor(seed * 131) % HOUSE_PALETTES.length];
-
-  const roofStyle =
-    category === 'commercial'
-      ? 'parapet'
-      : seed > 0.45
-      ? 'gable'
-      : 'hip';
-
   const doorEdgeMap = new Map();
-  const doorSwingPoints = [];
+  const clearZones = [];
+
   for (const ds of doorSpecs) {
-    const eKey = makeEdgeKey(ds.x, ds.y, ds.side);
+    const eKey = makeEdgeKey(ds.x, ds.y, ds.side, floorNum);
     doorEdgeMap.set(eKey, ds);
 
-    // Record both tiles on either side of the doorway so furniture never blocks swing clearance
     const orient = ds.side === 'N' || ds.side === 'S' ? 'H' : 'V';
     const ex = ds.side === 'E' ? ds.x + 1 : ds.x;
     const ey = ds.side === 'S' ? ds.y + 1 : ds.y;
-    const mx = orient === 'H' ? ex + 0.5 : ex;
-    const my = orient === 'H' ? ey : ey + 0.5;
-    doorSwingPoints.push({ x: mx, y: my });
+    clearZones.push({
+      x: orient === 'H' ? ex + 0.5 : ex,
+      y: orient === 'H' ? ey : ey + 0.5
+    });
+  }
+
+  for (const st of stairs) {
+    clearZones.push({ x: st.x + 0.5, y: st.y + 0.5 });
   }
 
   const edgeWalls = [];
+  const floorDoors = [];
   const seenEdges = new Set();
 
   for (const key of cellSet) {
@@ -117,7 +103,7 @@ export function stampThinWallBuilding(chunk, config) {
 
       if (!isExterior && !isPartition) continue;
 
-      const eKey = makeEdgeKey(wx, wy, s.side);
+      const eKey = makeEdgeKey(wx, wy, s.side, floorNum);
       if (seenEdges.has(eKey)) continue;
       seenEdges.add(eKey);
 
@@ -133,29 +119,37 @@ export function stampThinWallBuilding(chunk, config) {
           key: eKey,
           x: ex,
           y: ey,
+          floor: floorNum,
           orient,
-          buildingId: id,
+          buildingId: bldgId,
           interior: Boolean(doorSpec.interior),
           state: isOpen ? 'open' : doorSpec.state,
           hp: doorDamage.has(eKey) ? doorDamage.get(eKey) : maxHp,
           maxHp
         };
-        chunk.doors.push(doorObj);
+        floorDoors.push(doorObj);
+        if (floorNum === 0) chunk.doors.push(doorObj);
         chunk.edgeDoors.set(eKey, doorObj);
       } else {
+        // Place windows/awnings ONLY on South and East street-facing exterior walls (never back North/West walls)
+        const isStreetFacing = isExterior && (s.side === 'S' || s.side === 'E');
         const hasWindow =
-          isExterior &&
+          isStreetFacing &&
+          floorNum >= 0 &&
           ((orient === 'H' && wx % 2 === 0) || (orient === 'V' && wy % 2 === 1));
         const isBoarded = hasWindow && doorSpecs[0]?.state === 'barricaded';
         const wallObj = {
           key: eKey,
           x: ex,
           y: ey,
+          floor: floorNum,
           orient,
+          outSide: isExterior ? s.side : null,
           isExterior,
+          isBasement: floorNum < 0,
           hasWindow,
           isBoarded,
-          buildingId: id
+          buildingId: bldgId
         };
         edgeWalls.push(wallObj);
         chunk.edgeWalls.set(eKey, wallObj);
@@ -163,33 +157,13 @@ export function stampThinWallBuilding(chunk, config) {
     }
   }
 
-  if (porchRect) {
-    for (let py = porchRect.y1; py <= porchRect.y2; py++) {
-      for (let px = porchRect.x1; px <= porchRect.x2; px++) {
-        const lx = px - baseX;
-        const ly = py - baseY;
-        if (lx >= 0 && lx < CHUNK_SIZE && ly >= 0 && ly < CHUNK_SIZE) {
-          if (chunk.tiles[ly * CHUNK_SIZE + lx] === 0) {
-            chunk.tiles[ly * CHUNK_SIZE + lx] = 1;
-          }
-        }
-      }
-    }
-  }
-
-  // Helper: only place furniture if its bounding box stays >= 1.25 tiles away from all doorways
   const props = [];
   const tryAddProp = (prop) => {
-    const cx = prop.x + prop.w / 2;
-    const cy = prop.y + prop.d / 2;
-    for (const dp of doorSwingPoints) {
+    for (const dp of clearZones) {
       const nearX = Math.max(prop.x, Math.min(dp.x, prop.x + prop.w));
       const nearY = Math.max(prop.y, Math.min(dp.y, prop.y + prop.d));
-      if (Math.hypot(dp.x - nearX, dp.y - nearY) < 1.15) {
-        return;
-      }
+      if (Math.hypot(dp.x - nearX, dp.y - nearY) < 1.2) return;
     }
-    // Also avoid overlapping existing props
     for (const other of props) {
       if (
         prop.x < other.x + other.w + 0.15 &&
@@ -233,15 +207,13 @@ export function stampThinWallBuilding(chunk, config) {
       if (rw >= 8) {
         tryAddProp({ x: rm.x2 - 3.3, y: rm.y1 + 2.5, w: 2.4, d: 0.75, kind: 'shelf', solid: true });
       }
-    } else if (rm.type === 'shed' && rw >= 3 && rh >= 3) {
-      tryAddProp({ x: rm.x1 + 0.2, y: rm.y1 + 0.2, w: 1.6, d: 0.75, kind: 'shelf', solid: true });
+    } else if ((rm.type === 'shed' || rm.type === 'basement') && rw >= 3 && rh >= 3) {
+      tryAddProp({ x: rm.x1 + 0.2, y: rm.y1 + 0.2, w: 1.8, d: 0.8, kind: 'shelf', solid: true });
     }
   }
 
-  const bldg = {
-    id,
-    name,
-    category,
+  return {
+    floor: floorNum,
     rooms,
     rects: rooms.map((r) => ({ x1: r.x1, y1: r.y1, x2: r.x2, y2: r.y2 })),
     x1: minX,
@@ -250,7 +222,90 @@ export function stampThinWallBuilding(chunk, config) {
     y2: maxY,
     cellSet,
     edgeWalls,
+    doors: floorDoors,
     props,
+    stairs
+  };
+}
+
+export function stampThinWallBuilding(chunk, config) {
+  const {
+    id,
+    name,
+    category,
+    rooms,
+    doorSpecs,
+    extraFloors = {},
+    groundStairs = [],
+    seed = 0.5,
+    defaultRevealed = false,
+    porchRect = null
+  } = config;
+
+  const CHUNK_SIZE = 32;
+  const baseX = chunk.cx * CHUNK_SIZE;
+  const baseY = chunk.cy * CHUNK_SIZE;
+
+  const palette =
+    category === 'commercial'
+      ? COMMERCIAL_PALETTES[Math.floor(seed * 97) % COMMERCIAL_PALETTES.length]
+      : HOUSE_PALETTES[Math.floor(seed * 131) % HOUSE_PALETTES.length];
+
+  const roofStyle =
+    category === 'commercial' || Object.keys(extraFloors).length >= 2
+      ? 'parapet'
+      : seed > 0.45
+      ? 'gable'
+      : 'hip';
+
+  const floors = {};
+  floors[0] = buildFloorLevel(chunk, id, category, 0, rooms, doorSpecs, groundStairs);
+
+  for (const [fKey, fCfg] of Object.entries(extraFloors)) {
+    const fNum = Number(fKey);
+    floors[fNum] = buildFloorLevel(
+      chunk,
+      id,
+      category,
+      fNum,
+      fCfg.rooms,
+      fCfg.doorSpecs || [],
+      fCfg.stairs || []
+    );
+  }
+
+  if (porchRect) {
+    for (let py = porchRect.y1; py <= porchRect.y2; py++) {
+      for (let px = porchRect.x1; px <= porchRect.x2; px++) {
+        const lx = px - baseX;
+        const ly = py - baseY;
+        if (lx >= 0 && lx < CHUNK_SIZE && ly >= 0 && ly < CHUNK_SIZE) {
+          if (chunk.tiles[ly * CHUNK_SIZE + lx] === 0) {
+            chunk.tiles[ly * CHUNK_SIZE + lx] = 1;
+          }
+        }
+      }
+    }
+  }
+
+  const g = floors[0];
+  const bldg = {
+    id,
+    name,
+    category,
+    floors,
+    minFloor: Math.min(...Object.keys(floors).map(Number)),
+    maxFloor: Math.max(...Object.keys(floors).map(Number)),
+    rooms: g.rooms,
+    rects: g.rects,
+    x1: g.x1,
+    y1: g.y1,
+    x2: g.x2,
+    y2: g.y2,
+    cellSet: g.cellSet,
+    edgeWalls: g.edgeWalls,
+    props: g.props,
+    stairs: g.stairs,
     palette,
     roofStyle,
     porchRect,
@@ -280,12 +335,11 @@ export function generateFloorplanBuilding(chunk, opts) {
     stampThinWallBuilding(chunk, { id, name, category: 'commercial', rooms, doorSpecs, seed });
     return {
       lootSpots: [
-        { x: bx + 2.5, y: by + 1.5, room: 'stockroom' },
-        { x: bx + 7.5, y: by + 1.5, room: 'bathroom' },
-        { x: bx + 4.5, y: by + 5.5, room: 'retail' }
+        { x: bx + 2.5, y: by + 1.5, room: 'stockroom', floor: 0 },
+        { x: bx + 7.5, y: by + 1.5, room: 'bathroom', floor: 0 }
       ],
-      zX: bx + 5.5,
-      zY: by + 5.5
+      zX: bx + 4.5,
+      zY: by + 6.5
     };
   }
 
@@ -311,8 +365,8 @@ export function generateFloorplanBuilding(chunk, opts) {
     });
     return {
       lootSpots: [
-        { x: bx + 2.5, y: by + 1.5, room: 'bedroom' },
-        { x: bx + 5.5, y: by + 1.5, room: 'bathroom' }
+        { x: bx + 2.5, y: by + 1.5, room: 'bedroom', floor: 0 },
+        { x: bx + 5.5, y: by + 1.5, room: 'bathroom', floor: 0 }
       ],
       zX: bx + 4.5,
       zY: by + 4.5
@@ -320,86 +374,74 @@ export function generateFloorplanBuilding(chunk, opts) {
   }
 
   if (tier === 'mansion') {
-    const rooms = [
+    const rooms1F = [
       { name: 'Grand Foyer & Living', type: 'living', x1: bx + 4, y1: by + 6, x2: bx + 10, y2: by + 11 },
       { name: 'Gourmet Kitchen', type: 'kitchen', x1: bx + 4, y1: by + 3, x2: bx + 10, y2: by + 5 },
-      { name: 'Master Suite', type: 'bedroom', x1: bx, y1: by, x2: bx + 4, y2: by + 3 },
-      { name: 'Master Bath', type: 'bathroom', x1: bx, y1: by + 4, x2: bx + 3, y2: by + 6 },
-      { name: 'Guest Bedroom 2', type: 'bedroom', x1: bx + 5, y1: by, x2: bx + 8, y2: by + 2 },
-      { name: 'Guest Bedroom 3', type: 'bedroom', x1: bx + 9, y1: by, x2: bx + 12, y2: by + 2 },
-      { name: 'Hall Bath', type: 'bathroom', x1: bx + 11, y1: by + 3, x2: bx + 13, y2: by + 5 },
-      { name: '2-Car Garage', type: 'garage', x1: bx + 11, y1: by + 6, x2: bx + 14, y2: by + 11 }
+      { name: 'Downstairs Suite', type: 'bedroom', x1: bx, y1: by, x2: bx + 4, y2: by + 3 },
+      { name: 'Powder Bath', type: 'bathroom', x1: bx, y1: by + 4, x2: bx + 3, y2: by + 6 },
+      { name: 'Study', type: 'living', x1: bx + 5, y1: by, x2: bx + 12, y2: by + 2 },
+      { name: '2-Car Garage', type: 'garage', x1: bx + 11, y1: by + 4, x2: bx + 14, y2: by + 11 }
     ];
-    const doorSpecs = [
+    const doorSpecs1F = [
       { x: bx + 7, y: by + 11, side: 'S', state: doorState, interior: false },
       { x: bx + 12, y: by + 11, side: 'S', state: 'locked', interior: false },
       { x: bx + 7, y: by + 5, side: 'S', state: 'unlocked', interior: true },
       { x: bx + 4, y: by + 2, side: 'E', state: 'unlocked', interior: true },
       { x: bx + 2, y: by + 3, side: 'S', state: 'unlocked', interior: true },
-      { x: bx + 6, y: by + 2, side: 'S', state: 'unlocked', interior: true },
-      { x: bx + 10, y: by + 2, side: 'S', state: 'unlocked', interior: true },
-      { x: bx + 11, y: by + 4, side: 'W', state: 'unlocked', interior: true },
+      { x: bx + 8, y: by + 2, side: 'S', state: 'unlocked', interior: true },
       { x: bx + 11, y: by + 8, side: 'W', state: 'unlocked', interior: true }
     ];
     stampThinWallBuilding(chunk, {
       id,
       name: `${name} (4BR/3BA)`,
       category: 'house',
-      rooms,
-      doorSpecs,
+      rooms: rooms1F,
+      doorSpecs: doorSpecs1F,
       seed,
       porchRect: { x1: bx + 5, y1: by + 12, x2: bx + 9, y2: by + 12 }
     });
     return {
       lootSpots: [
-        { x: bx + 2.5, y: by + 1.5, room: 'bedroom' },
-        { x: bx + 1.5, y: by + 5.5, room: 'bathroom' },
-        { x: bx + 12.5, y: by + 8.5, room: 'garage' }
+        { x: bx + 2.5, y: by + 1.5, room: 'bedroom', floor: 0 },
+        { x: bx + 12.5, y: by + 8.5, room: 'garage', floor: 0 }
       ],
       zX: bx + 7.5,
-      zY: by + 8.5
+      zY: by + 9.5
     };
   }
 
-  // Default: 3 Bedroom / 2 Bathroom Suburban Family Home + Attached Garage (11x9)
-  const rooms = [
-    { name: 'Living Room', type: 'living', x1: bx, y1: by + 5, x2: bx + 4, y2: by + 8 },
-    { name: 'Kitchen & Dining', type: 'kitchen', x1: bx + 5, y1: by + 5, x2: bx + 7, y2: by + 8 },
-    { name: 'Master Bedroom', type: 'bedroom', x1: bx, y1: by, x2: bx + 3, y2: by + 2 },
-    { name: 'Master Bath', type: 'bathroom', x1: bx, y1: by + 3, x2: bx + 2, y2: by + 4 },
-    { name: 'Bedroom 2', type: 'bedroom', x1: bx + 4, y1: by, x2: bx + 6, y2: by + 2 },
-    { name: 'Bedroom 3', type: 'bedroom', x1: bx + 7, y1: by, x2: bx + 9, y2: by + 2 },
-    { name: 'Hall Bath', type: 'bathroom', x1: bx + 5, y1: by + 3, x2: bx + 7, y2: by + 4 },
-    { name: 'Garage', type: 'garage', x1: bx + 8, y1: by + 4, x2: bx + 10, y2: by + 8 }
+  // 3BR/2BA Suburban Family Home + Attached Garage
+  const rooms1F = [
+    { name: 'Living Room', type: 'living', x1: bx, y1: by + 4, x2: bx + 4, y2: by + 8 },
+    { name: 'Kitchen & Dining', type: 'kitchen', x1: bx + 5, y1: by + 4, x2: bx + 7, y2: by + 8 },
+    { name: 'Master Bedroom', type: 'bedroom', x1: bx, y1: by, x2: bx + 4, y2: by + 3 },
+    { name: 'Bath', type: 'bathroom', x1: bx + 5, y1: by, x2: bx + 7, y2: by + 3 },
+    { name: 'Garage', type: 'garage', x1: bx + 8, y1: by + 3, x2: bx + 10, y2: by + 8 }
   ];
-  const doorSpecs = [
+  const doorSpecs1F = [
     { x: bx + 2, y: by + 8, side: 'S', state: doorState, interior: false },
     { x: bx + 9, y: by + 8, side: 'S', state: 'locked', interior: false },
     { x: bx + 4, y: by + 6, side: 'E', state: 'unlocked', interior: true },
-    { x: bx + 3, y: by + 2, side: 'S', state: 'unlocked', interior: true },
-    { x: bx + 1, y: by + 2, side: 'S', state: 'unlocked', interior: true },
-    { x: bx + 5, y: by + 2, side: 'S', state: 'unlocked', interior: true },
-    { x: bx + 8, y: by + 2, side: 'S', state: 'unlocked', interior: true },
-    { x: bx + 6, y: by + 4, side: 'S', state: 'unlocked', interior: true },
+    { x: bx + 2, y: by + 3, side: 'S', state: 'unlocked', interior: true },
+    { x: bx + 6, y: by + 3, side: 'S', state: 'unlocked', interior: true },
     { x: bx + 8, y: by + 6, side: 'W', state: 'unlocked', interior: true }
   ];
   stampThinWallBuilding(chunk, {
     id,
     name: `${name} (3BR/2BA)`,
     category: 'house',
-    rooms,
-    doorSpecs,
+    rooms: rooms1F,
+    doorSpecs: doorSpecs1F,
     seed,
     porchRect: { x1: bx + 1, y1: by + 9, x2: bx + 3, y2: by + 9 }
   });
 
   return {
     lootSpots: [
-      { x: bx + 2.5, y: by + 1.5, room: 'bedroom' },
-      { x: bx + 1.5, y: by + 3.5, room: 'bathroom' },
-      { x: bx + 9.5, y: by + 6.5, room: 'garage' }
+      { x: bx + 2.5, y: by + 1.5, room: 'bedroom', floor: 0 },
+      { x: bx + 9.5, y: by + 6.5, room: 'garage', floor: 0 }
     ],
     zX: bx + 3.5,
-    zY: by + 6.5
+    zY: by + 7.5
   };
 }
