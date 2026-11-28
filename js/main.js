@@ -170,14 +170,19 @@ initNetwork(player, {
   }
 });
 
-// Select Survivor Archetype (fires immediately on pointerdown or click on iPad Safari)
+// Select Survivor Archetype (supports immediate pre-module taps via window.__selectedArchetype)
 function selectArchetype(arch) {
   if (!arch || player.started) return;
   applyArchetypeLoadout(player, arch);
   archBadge.textContent = arch.toUpperCase();
-  archModal.classList.add('hidden');
+  if (archModal) archModal.classList.add('hidden');
   player.started = true;
   showToast('Tap the minimap anytime to inspect or edit the 2048×2048 world!');
+}
+
+window.__applyArchetype = selectArchetype;
+if (window.__selectedArchetype) {
+  selectArchetype(window.__selectedArchetype);
 }
 
 document.querySelectorAll('.arch-btn').forEach((btn) => {
