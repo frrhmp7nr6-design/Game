@@ -80,7 +80,6 @@ export function drawExtrudedBlock(ctx, wx, wy, camX, camY, h, colors, alpha = 1)
   ctx.restore();
 }
 
-// Fade a thin wall ONLY when the player is genuinely behind it on the opposite side from the camera
 function isThinWallOccluding(wall, player, camX, camY) {
   const midX = wall.orient === 'H' ? wall.x + 0.5 : wall.x;
   const midY = wall.orient === 'H' ? wall.y : wall.y + 0.5;
@@ -90,7 +89,6 @@ function isThinWallOccluding(wall, player, camX, camY) {
   const wDepth = wRot.rx + wRot.ry;
   const pDepth = pRot.rx + pRot.ry;
 
-  // Require at least +0.45 isometric depth closer to camera so standing against the front never fades it
   if (wDepth <= pDepth + 0.45) return false;
 
   const wScreen = worldToScreen(midX, midY, camX, camY);
@@ -143,8 +141,8 @@ export function drawThinWall(ctx, wall, building, camX, camY, player) {
     );
   }
 
-  // Rectangular isometric window + optional storefront awning (replaces blue circles)
-  if (wall.hasWindow && !occluding) {
+  // Rectangular isometric window & outward-facing awning (fades to match wall alpha when occluded)
+  if (wall.hasWindow) {
     const p1 =
       wall.orient === 'H'
         ? worldToScreen(wall.x + 0.22, wall.y, camX, camY)
@@ -155,7 +153,8 @@ export function drawThinWall(ctx, wall, building, camX, camY, player) {
         : worldToScreen(wall.x, wall.y + 0.78, camX, camY);
 
     ctx.save();
-    // Dark window sill & frame
+    ctx.globalAlpha = alpha;
+
     ctx.fillStyle = '#0f172a';
     ctx.beginPath();
     ctx.moveTo(p1.x, p1.y - 12);
@@ -165,7 +164,6 @@ export function drawThinWall(ctx, wall, building, camX, camY, player) {
     ctx.closePath();
     ctx.fill();
 
-    // Recessed glass pane or wooden barricade planks
     ctx.fillStyle = wall.isBoarded ? '#92400e' : '#38bdf8';
     ctx.beginPath();
     ctx.moveTo(p1.x + (p2.x - p1.x) * 0.1, p1.y + (p2.y - p1.y) * 0.1 - 14);
@@ -175,7 +173,6 @@ export function drawThinWall(ctx, wall, building, camX, camY, player) {
     ctx.closePath();
     ctx.fill();
 
-    // Window center mullion bar
     const mx = (p1.x + p2.x) / 2;
     const my = (p1.y + p2.y) / 2;
     ctx.strokeStyle = '#0f172a';
@@ -185,8 +182,8 @@ export function drawThinWall(ctx, wall, building, camX, camY, player) {
     ctx.lineTo(mx, my - 28);
     ctx.stroke();
 
-    // Commercial storefront awning over exterior windows
-    if (building?.category === 'commercial' && pal?.awning) {
+    // Project commercial awnings strictly OUTWARD from the building using outSide ('S' or 'E')
+    if (building?.category === 'commercial' && pal?.awning && (wall.outSide === 'S' || wall.outSide === 'E')) {
       const a1 =
         wall.orient === 'H'
           ? worldToScreen(wall.x + 0.05, wall.y, camX, camY)
@@ -195,15 +192,22 @@ export function drawThinWall(ctx, wall, building, camX, camY, player) {
         wall.orient === 'H'
           ? worldToScreen(wall.x + 0.95, wall.y, camX, camY)
           : worldToScreen(wall.x, wall.y + 0.95, camX, camY);
-      const outX = wall.orient === 'H' ? -8 : 8;
-      const outY = 6;
+
+      const outA1 =
+        wall.outSide === 'S'
+          ? worldToScreen(wall.x + 0.05, wall.y + 0.45, camX, camY)
+          : worldToScreen(wall.x + 0.45, wall.y + 0.05, camX, camY);
+      const outA2 =
+        wall.outSide === 'S'
+          ? worldToScreen(wall.x + 0.95, wall.y + 0.45, camX, camY)
+          : worldToScreen(wall.x + 0.45, wall.y + 0.95, camX, camY);
 
       ctx.fillStyle = pal.awning;
       ctx.beginPath();
       ctx.moveTo(a1.x, a1.y - 34);
       ctx.lineTo(a2.x, a2.y - 34);
-      ctx.lineTo(a2.x + outX, a2.y - 26 + outY);
-      ctx.lineTo(a1.x + outX, a1.y - 26 + outY);
+      ctx.lineTo(outA2.x, outA2.y - 26);
+      ctx.lineTo(outA1.x, outA1.y - 26);
       ctx.closePath();
       ctx.fill();
       ctx.strokeStyle = '#0f172a';
