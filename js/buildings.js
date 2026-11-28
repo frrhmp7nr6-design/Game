@@ -131,10 +131,9 @@ function buildFloorLevel(chunk, bldgId, category, floorNum, rooms, doorSpecs, st
         if (floorNum === 0) chunk.doors.push(doorObj);
         chunk.edgeDoors.set(eKey, doorObj);
       } else {
-        // Place windows/awnings ONLY on South and East street-facing exterior walls (never back North/West walls)
-        const isStreetFacing = isExterior && (s.side === 'S' || s.side === 'E');
+        // Windows appear on all exterior walls (interior + exterior faces); awnings only draw on S/E in render_buildings.js
         const hasWindow =
-          isStreetFacing &&
+          isExterior &&
           floorNum >= 0 &&
           ((orient === 'H' && wx % 2 === 0) || (orient === 'V' && wy % 2 === 1));
         const isBoarded = hasWindow && doorSpecs[0]?.state === 'barricaded';
@@ -177,38 +176,40 @@ function buildFloorLevel(chunk, bldgId, category, floorNum, rooms, doorSpecs, st
     props.push(prop);
   };
 
+  // Offset props +0.28 inside room boundaries so thin edge walls never clip or cover furniture
+  const pad = 0.28;
   for (const rm of rooms) {
     const rw = rm.x2 - rm.x1 + 1;
     const rh = rm.y2 - rm.y1 + 1;
     if (rm.type === 'bedroom' && rw >= 3 && rh >= 3) {
-      tryAddProp({ x: rm.x1 + 0.15, y: rm.y1 + 0.15, w: 1.7, d: 1.7, kind: 'bed', solid: true });
+      tryAddProp({ x: rm.x1 + pad, y: rm.y1 + pad, w: 1.6, d: 1.6, kind: 'bed', solid: true });
       if (rw >= 4) {
-        tryAddProp({ x: rm.x2 - 0.95, y: rm.y1 + 0.15, w: 0.85, d: 1.3, kind: 'dresser', solid: true });
+        tryAddProp({ x: rm.x2 + 1 - pad - 0.8, y: rm.y1 + pad, w: 0.8, d: 1.25, kind: 'dresser', solid: true });
       }
     } else if (rm.type === 'bathroom' && rw >= 2 && rh >= 2) {
-      tryAddProp({ x: rm.x1 + 0.15, y: rm.y1 + 0.15, w: 0.75, d: 0.75, kind: 'toilet', solid: true });
+      tryAddProp({ x: rm.x1 + pad, y: rm.y1 + pad, w: 0.7, d: 0.7, kind: 'toilet', solid: true });
       if (rw >= 3) {
-        tryAddProp({ x: rm.x2 - 1.05, y: rm.y1 + 0.15, w: 0.9, d: 1.4, kind: 'tub', solid: true });
+        tryAddProp({ x: rm.x2 + 1 - pad - 0.85, y: rm.y1 + pad, w: 0.85, d: 1.35, kind: 'tub', solid: true });
       }
     } else if (rm.type === 'kitchen' && rw >= 3 && rh >= 3) {
-      tryAddProp({ x: rm.x1 + 0.15, y: rm.y1 + 0.15, w: Math.min(2.4, rw - 1.3), d: 0.85, kind: 'counter', solid: true });
-      tryAddProp({ x: rm.x2 - 1.0, y: rm.y1 + 0.15, w: 0.85, d: 0.85, kind: 'fridge', solid: true });
+      tryAddProp({ x: rm.x1 + pad, y: rm.y1 + pad, w: Math.min(2.3, rw - 1.45), d: 0.8, kind: 'counter', solid: true });
+      tryAddProp({ x: rm.x2 + 1 - pad - 0.8, y: rm.y1 + pad, w: 0.8, d: 0.8, kind: 'fridge', solid: true });
       if (rh >= 4) {
-        tryAddProp({ x: rm.x1 + 0.6, y: rm.y2 - 1.3, w: 1.4, d: 1.0, kind: 'table', solid: true });
+        tryAddProp({ x: rm.x1 + 0.65, y: rm.y2 + 1 - pad - 0.95, w: 1.35, d: 0.95, kind: 'table', solid: true });
       }
     } else if (rm.type === 'living' && rw >= 4 && rh >= 3) {
-      tryAddProp({ x: rm.x1 + 0.3, y: rm.y1 + 0.3, w: 2.0, d: 0.9, kind: 'sofa', solid: true });
-      tryAddProp({ x: rm.x1 + 0.7, y: rm.y1 + 1.6, w: 1.3, d: 0.75, kind: 'table', solid: true });
+      tryAddProp({ x: rm.x1 + pad + 0.1, y: rm.y1 + pad + 0.1, w: 1.9, d: 0.85, kind: 'sofa', solid: true });
+      tryAddProp({ x: rm.x1 + 0.75, y: rm.y1 + 1.65, w: 1.25, d: 0.7, kind: 'table', solid: true });
     } else if (rm.type === 'garage' && rw >= 4 && rh >= 4) {
-      tryAddProp({ x: rm.x1 + 0.2, y: rm.y1 + 0.2, w: 2.2, d: 0.85, kind: 'workbench', solid: true });
+      tryAddProp({ x: rm.x1 + pad, y: rm.y1 + pad, w: 2.1, d: 0.8, kind: 'workbench', solid: true });
     } else if (rm.type === 'retail' && rw >= 5 && rh >= 5) {
-      tryAddProp({ x: rm.x1 + 0.8, y: rm.y1 + 0.4, w: 2.6, d: 0.85, kind: 'counter', solid: true });
-      tryAddProp({ x: rm.x1 + 0.8, y: rm.y1 + 2.5, w: 2.4, d: 0.75, kind: 'shelf', solid: true });
+      tryAddProp({ x: rm.x1 + 0.85, y: rm.y1 + 0.45, w: 2.5, d: 0.8, kind: 'counter', solid: true });
+      tryAddProp({ x: rm.x1 + 0.85, y: rm.y1 + 2.55, w: 2.3, d: 0.7, kind: 'shelf', solid: true });
       if (rw >= 8) {
-        tryAddProp({ x: rm.x2 - 3.3, y: rm.y1 + 2.5, w: 2.4, d: 0.75, kind: 'shelf', solid: true });
+        tryAddProp({ x: rm.x2 + 1 - 3.25, y: rm.y1 + 2.55, w: 2.3, d: 0.7, kind: 'shelf', solid: true });
       }
     } else if ((rm.type === 'shed' || rm.type === 'basement') && rw >= 3 && rh >= 3) {
-      tryAddProp({ x: rm.x1 + 0.2, y: rm.y1 + 0.2, w: 1.8, d: 0.8, kind: 'shelf', solid: true });
+      tryAddProp({ x: rm.x1 + pad, y: rm.y1 + pad, w: 1.7, d: 0.75, kind: 'shelf', solid: true });
     }
   }
 
@@ -318,6 +319,125 @@ export function stampThinWallBuilding(chunk, config) {
 
 export function generateFloorplanBuilding(chunk, opts) {
   const { id, name, bx, by, tier, doorState, seed } = opts;
+
+  if (tier === 'highrise') {
+    const bw = 11;
+    const bh = 10;
+    const rooms1F = [
+      { name: 'Lobby & Security', type: 'retail', x1: bx, y1: by + 4, x2: bx + bw - 1, y2: by + bh - 1 },
+      { name: 'Mail & Stair Core', type: 'shed', x1: bx, y1: by, x2: bx + 4, y2: by + 3 },
+      { name: 'Management Office', type: 'living', x1: bx + 5, y1: by, x2: bx + bw - 1, y2: by + 3 }
+    ];
+    const doors1F = [
+      { x: bx + 5, y: by + bh - 1, side: 'S', state: doorState, interior: false },
+      { x: bx + 2, y: by + 3, side: 'S', state: 'unlocked', interior: true },
+      { x: bx + 7, y: by + 3, side: 'S', state: 'unlocked', interior: true }
+    ];
+    const stairs1F = [{ x: bx + 1, y: by + 1, fromFloor: 0, toFloor: 1, dir: 'up' }];
+
+    const makeUpperFloor = (fNum, hasUp, hasDown) => {
+      const stairs = [];
+      if (hasDown) stairs.push({ x: bx + 1, y: by + 1, fromFloor: fNum, toFloor: fNum - 1, dir: 'down' });
+      if (hasUp) stairs.push({ x: bx + 3, y: by + 1, fromFloor: fNum, toFloor: fNum + 1, dir: 'up' });
+      return {
+        rooms: [
+          { name: `Floor ${fNum + 1} Hall`, type: 'living', x1: bx, y1: by, x2: bx + 4, y2: by + 4 },
+          { name: `Suite ${fNum + 1}A`, type: 'bedroom', x1: bx + 5, y1: by, x2: bx + bw - 1, y2: by + 4 },
+          { name: `Suite ${fNum + 1}B`, type: 'kitchen', x1: bx, y1: by + 5, x2: bx + 5, y2: by + bh - 1 },
+          { name: `Suite ${fNum + 1} Bath`, type: 'bathroom', x1: bx + 6, y1: by + 5, x2: bx + bw - 1, y2: by + bh - 1 }
+        ],
+        doorSpecs: [
+          { x: bx + 4, y: by + 2, side: 'E', state: 'locked', interior: true },
+          { x: bx + 2, y: by + 4, side: 'S', state: 'unlocked', interior: true },
+          { x: bx + 5, y: by + 7, side: 'E', state: 'unlocked', interior: true }
+        ],
+        stairs
+      };
+    };
+
+    stampThinWallBuilding(chunk, {
+      id,
+      name: `${name} (4-Story Tower)`,
+      category: 'commercial',
+      rooms: rooms1F,
+      doorSpecs: doors1F,
+      groundStairs: stairs1F,
+      extraFloors: {
+        1: makeUpperFloor(1, true, true),
+        2: makeUpperFloor(2, true, true),
+        3: makeUpperFloor(3, false, true)
+      },
+      seed
+    });
+
+    return {
+      lootSpots: [
+        { x: bx + 7.5, y: by + 2.5, room: 'garage', floor: 0 },
+        { x: bx + 8.5, y: by + 2.5, room: 'bedroom', floor: 1 },
+        { x: bx + 8.5, y: by + 7.5, room: 'bathroom', floor: 2 },
+        { x: bx + 2.5, y: by + 7.5, room: 'garage', floor: 3 }
+      ],
+      zX: bx + 5.5,
+      zY: by + 6.5
+    };
+  }
+
+  if (tier === 'apartments') {
+    const bw = 11;
+    const bh = 9;
+    const makeAptFloor = (fNum, isGround) => {
+      const stairs = [];
+      if (fNum > 0) stairs.push({ x: bx + 5, y: by + 1, fromFloor: fNum, toFloor: fNum - 1, dir: 'down' });
+      if (fNum < 2) stairs.push({ x: bx + 5, y: by + 7, fromFloor: fNum, toFloor: fNum + 1, dir: 'up' });
+
+      const doorSpecs = [
+        { x: bx + 4, y: by + 2, side: 'W', state: 'locked', interior: true },
+        { x: bx + 6, y: by + 2, side: 'E', state: 'unlocked', interior: true },
+        { x: bx + 4, y: by + 6, side: 'W', state: 'unlocked', interior: true },
+        { x: bx + 6, y: by + 6, side: 'E', state: 'locked', interior: true }
+      ];
+      if (isGround) {
+        doorSpecs.unshift({ x: bx + 5, y: by + bh - 1, side: 'S', state: doorState, interior: false });
+      }
+
+      return {
+        rooms: [
+          { name: 'Central Breezeway', type: 'living', x1: bx + 4, y1: by, x2: bx + 6, y2: by + bh - 1 },
+          { name: `Apt ${fNum + 1}01`, type: 'bedroom', x1: bx, y1: by, x2: bx + 3, y2: by + 3 },
+          { name: `Apt ${fNum + 1}02`, type: 'kitchen', x1: bx + 7, y1: by, x2: bx + bw - 1, y2: by + 3 },
+          { name: `Apt ${fNum + 1}03`, type: 'kitchen', x1: bx, y1: by + 4, x2: bx + 3, y2: by + bh - 1 },
+          { name: `Apt ${fNum + 1}04`, type: 'bedroom', x1: bx + 7, y1: by + 4, x2: bx + bw - 1, y2: by + bh - 1 }
+        ],
+        doorSpecs,
+        stairs
+      };
+    };
+
+    const f0 = makeAptFloor(0, true);
+    stampThinWallBuilding(chunk, {
+      id,
+      name: `${name} (3F Apts)`,
+      category: 'commercial',
+      rooms: f0.rooms,
+      doorSpecs: f0.doorSpecs,
+      groundStairs: f0.stairs,
+      extraFloors: {
+        1: makeAptFloor(1, false),
+        2: makeAptFloor(2, false)
+      },
+      seed
+    });
+
+    return {
+      lootSpots: [
+        { x: bx + 1.5, y: by + 1.5, room: 'bedroom', floor: 0 },
+        { x: bx + 8.5, y: by + 1.5, room: 'kitchen', floor: 1 },
+        { x: bx + 8.5, y: by + 6.5, room: 'bedroom', floor: 2 }
+      ],
+      zX: bx + 5.5,
+      zY: by + 4.5
+    };
+  }
 
   if (tier === 'commercial') {
     const bw = 9;
