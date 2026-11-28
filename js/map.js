@@ -214,10 +214,44 @@ function isEdgeBlocked(edgeKey, chunks) {
   return false;
 }
 
+// Checks if a straight segment from (x1,y1) to (x2,y2) crosses any solid wall or closed door
+export function hasLineOfSight(x1, y1, x2, y2, activeChunks) {
+  const chunks = activeChunks || getActiveChunks(x1, y1, 1);
+  const dist = Math.hypot(x2 - x1, y2 - y1);
+  const steps = Math.max(2, Math.ceil(dist * 6));
+  let prevTx = Math.floor(x1);
+  let prevTy = Math.floor(y1);
+
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const sx = x1 + (x2 - x1) * t;
+    const sy = y1 + (y2 - y1) * t;
+    const tx = Math.floor(sx);
+    const ty = Math.floor(sy);
+
+    if (getTileAt(tx, ty) === 2) return false;
+
+    if (tx !== prevTx) {
+      const gx = Math.max(tx, prevTx);
+      if (isEdgeBlocked(`V:${gx},${prevTy}`, chunks) || isEdgeBlocked(`V:${gx},${ty}`, chunks)) {
+        return false;
+      }
+      prevTx = tx;
+    }
+    if (ty !== prevTy) {
+      const gy = Math.max(ty, prevTy);
+      if (isEdgeBlocked(`H:${prevTx},${gy}`, chunks) || isEdgeBlocked(`H:${tx},${gy}`, chunks)) {
+        return false;
+      }
+      prevTy = ty;
+    }
+  }
+  return true;
+}
+
 function hitsSolidProp(nx, ny, radius, chunks) {
   const r = Math.min(radius, 0.24);
   for (const c of chunks) {
-    // 1. Solid interior furniture props inside buildings
     for (const b of c.buildings) {
       if (!b.props) continue;
       for (const p of b.props) {
@@ -232,7 +266,6 @@ function hitsSolidProp(nx, ny, radius, chunks) {
       }
     }
 
-    // 2. Solid outdoor props (parked cars, pine/oak trunks, boulders)
     if (c.props) {
       for (const p of c.props) {
         if (!p.solid) continue;
@@ -241,7 +274,6 @@ function hitsSolidProp(nx, ny, radius, chunks) {
             return true;
           }
         } else {
-          // Tree trunk / rock radius
           if (Math.hypot(nx - p.x, ny - p.y) < r + 0.26) {
             return true;
           }
@@ -261,7 +293,6 @@ export function isTileBlocked(tx, ty, activeChunks) {
 export function canWalkTo(nx, ny, radius, activeChunks) {
   const chunks = activeChunks || getActiveChunks(nx, ny, 1);
 
-  // 1. Check solid tile blocks (perimeter walls, river cliff, quarry wall)
   const corners = [
     [nx - radius, ny - radius],
     [nx + radius, ny - radius],
@@ -272,27 +303,23 @@ export function canWalkTo(nx, ny, radius, activeChunks) {
     if (isTileBlocked(Math.floor(cx), Math.floor(cy), chunks)) return false;
   }
 
-  // 2. Check thin edge walls & closed edge doors crossed by the unit's collision circle
   const minTx = Math.floor(nx - radius);
   const maxTx = Math.floor(nx + radius);
   const minTy = Math.floor(ny - radius);
   const maxTy = Math.floor(ny + radius);
 
-  // Vertical edges (x = gridX, spanning [ty, ty + 1])
   for (let gx = minTx + 1; gx <= maxTx; gx++) {
     for (let ty = minTy; ty <= maxTy; ty++) {
       if (isEdgeBlocked(`V:${gx},${ty}`, chunks)) return false;
     }
   }
 
-  // Horizontal edges (y = gridY, spanning [tx, tx + 1])
   for (let gy = minTy + 1; gy <= maxTy; gy++) {
     for (let tx = minTx; tx <= maxTx; tx++) {
       if (isEdgeBlocked(`H:${tx},${gy}`, chunks)) return false;
     }
   }
 
-  // 3. Check solid furniture (beds, counters, sofas, tables, toilets) & outdoor cars/trees
   if (hitsSolidProp(nx, ny, radius, chunks)) return false;
 
   return true;
