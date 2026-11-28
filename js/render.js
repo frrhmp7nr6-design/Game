@@ -172,7 +172,7 @@ function drawTile(ctx, wx, wy, camX, camY, type, roadKind, isHiddenInterior) {
   }
 }
 
-function drawEnvProp(ctx, prop, camX, camY) {
+function drawEnvProp(ctx, prop, camX, camY, player) {
   const pos = worldToScreen(prop.x, prop.y, camX, camY);
   if (
     pos.x < -80 ||
@@ -185,18 +185,35 @@ function drawEnvProp(ctx, prop, camX, camY) {
 
   const s = prop.scale || 1;
 
+  // Fade tall trees ONLY when they are strictly on the camera side of the player (in front of player)
+  let alpha = 1;
+  if (prop.kind === 'pine' || prop.kind === 'oak') {
+    const propRot = rotateCoords(prop.x, prop.y);
+    const playerRot = rotateCoords(player.x, player.y);
+    const propDepth = propRot.rx + propRot.ry;
+    const playerDepth = playerRot.rx + playerRot.ry;
+    if (propDepth > playerDepth + 0.35) {
+      const pScreen = worldToScreen(player.x, player.y, camX, camY);
+      const dy = pos.y - pScreen.y;
+      const dx = Math.abs(pos.x - pScreen.x);
+      if (dy > 6 && dy < 72 && dx < 32) {
+        alpha = 0.34;
+      }
+    }
+  }
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
   if (prop.kind === 'pine') {
-    // Ground shadow
     ctx.fillStyle = 'rgba(0, 0, 0, 0.38)';
     ctx.beginPath();
     ctx.ellipse(pos.x, pos.y + 3, 16 * s, 8 * s, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Trunk
     ctx.fillStyle = '#5c2d16';
     ctx.fillRect(pos.x - 2.5 * s, pos.y - 16 * s, 5 * s, 17 * s);
 
-    // Layered pine tiers
     const tiers = [
       { yOff: 14, w: 18, h: 24, col: '#14532d' },
       { yOff: 28, w: 14, h: 22, col: '#166534' },
@@ -315,12 +332,25 @@ function drawEnvProp(ctx, prop, camX, camY) {
       top: col
     });
   }
+
+  ctx.restore();
 }
 
-function isWallOccludingUnit(wallScreen, unitScreen) {
-  const dy = wallScreen.y - unitScreen.y;
+// Returns true ONLY when the wall tile is strictly on the camera side (greater isometric depth)
+// and visually overlaps the unit's sprite in screen space.
+function isWallOccludingUnit(wallWx, wallWy, wallScreen, unitWx, unitWy, unitScreen) {
+  const wallRot = rotateCoords(wallWx + 0.5, wallWy + 0.5);
+  const unitRot = rotateCoords(unitWx, unitWy);
+  const wallDepth = wallRot.rx + wallRot.ry;
+  const unitDepth = unitRot.rx + unitRot.ry;
+
+  // Must be strictly closer to the camera than the unit (never fade walls behind the unit)
+  if (wallDepth <= unitDepth + 0.35) return false;
+
+  const wallBottomY = wallScreen.y + TILE_H;
+  const dy = wallBottomY - unitScreen.y;
   const dx = Math.abs(wallScreen.x - unitScreen.x);
-  return dy > 4 && dy < 58 && dx < 46;
+  return dy > 10 && dy < 60 && dx < 38;
 }
 
 function drawWall(ctx, wx, wy, camX, camY, player, visibleZombies, building, wallMeta) {
@@ -334,14 +364,13 @@ function drawWall(ctx, wx, wy, camX, camY, player, visibleZombies, building, wal
     return;
   }
 
-  const wallBase = { x: p.x, y: p.y + TILE_H };
   const playerScreen = worldToScreen(player.x, player.y, camX, camY);
-  let occluding = isWallOccludingUnit(wallBase, playerScreen);
+  let occluding = isWallOccludingUnit(wx, wy, p, player.x, player.y, playerScreen);
 
   if (!occluding) {
     for (const z of visibleZombies) {
       const zScreen = worldToScreen(z.x, z.y, camX, camY);
-      if (isWallOccludingUnit(wallBase, zScreen)) {
+      if (isWallOccludingUnit(wx, wy, p, z.x, z.y, zScreen)) {
         occluding = true;
         break;
       }
@@ -1168,7 +1197,6 @@ export function renderMinimap(mctx, player, activeChunks) {
   mctx.arc(player.x * scale, player.y * scale, 2.8, 0, Math.PI * 2);
   mctx.fill();
 
-  // Compass North Indicator (Top-Left of Isometric View = North)
   mctx.font = 'bold 9px -apple-system, sans-serif';
   mctx.fillStyle = 'rgba(148, 163, 184, 0.9)';
   mctx.textAlign = 'right';
@@ -1259,13 +1287,12 @@ export function renderFrame(ctx, player, activeChunks, nearbyLoot, nearbyDoor, o
       }
     }
 
-    // Outdoor trees, bushes, rocks, fences, streetlights & parked cars
     if (c.props) {
       for (const prop of c.props) {
         if (prop.x >= minX && prop.x <= maxX && prop.y >= minY && prop.y <= maxY) {
           renderables.push({
             depth: depthOf(prop.x, prop.y) + 0.04,
-            draw: () => drawEnvProp(ctx, prop, camX, camY)
+            draw: () => drawEnvProp(ctx, prop, camX, camY, player)
           });
         }
       }
