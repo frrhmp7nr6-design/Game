@@ -9,18 +9,14 @@ import {
   isInsideQuarryHub,
   isCreekTile,
   getDistrictAt,
-  clearChunkCache,
-  stampCompoundBuilding
+  clearChunkCache
 } from './chunks.js';
+import { stampThinWallBuilding } from './buildings.js';
 import { policePrecinct, rescueEvent } from './map.js';
 import { showToast } from './inventory.js';
 
 const STORAGE_KEY = 'isowalk-map-edits-v1';
 
-// Stores user map edits:
-// tiles: { "wx,wy": tileType }
-// buildings: [ { id, name, category, x, y, w, h } ]
-// props: [ { kind, x, y, scale, color, solid } ]
 export const mapEdits = {
   tiles: {},
   buildings: [],
@@ -52,7 +48,6 @@ function saveEdits() {
 
 loadSavedEdits();
 
-// Called at the end of generateChunk(cx, cy) in chunks.js
 export function applyEditorOverridesToChunk(chunk) {
   const baseX = chunk.cx * CHUNK_SIZE;
   const baseY = chunk.cy * CHUNK_SIZE;
@@ -73,22 +68,41 @@ export function applyEditorOverridesToChunk(chunk) {
     }
   }
 
-  // 2. Custom stamped buildings
+  // 2. Custom stamped thin-wall buildings
   for (const b of mapEdits.buildings) {
     if (b.x + b.w < baseX || b.x >= maxX || b.y + b.h < baseY || b.y >= maxY) continue;
-    const doorX = b.x + Math.floor(b.w / 2);
-    const doorY = b.y + b.h;
-    stampCompoundBuilding(chunk, {
+    const isShop = b.category === 'commercial';
+    const midY = b.y + Math.floor(b.h / 2);
+    const rooms = isShop
+      ? [
+          { name: 'Sales Floor', type: 'retail', x1: b.x, y1: midY + 1, x2: b.x + b.w - 1, y2: b.y + b.h - 1 },
+          { name: 'Back Room', type: 'shed', x1: b.x, y1: b.y, x2: b.x + b.w - 1, y2: midY }
+        ]
+      : [
+          { name: 'Living Area', type: 'living', x1: b.x, y1: midY + 1, x2: b.x + b.w - 1, y2: b.y + b.h - 1 },
+          { name: 'Bedroom', type: 'bedroom', x1: b.x, y1: b.y, x2: b.x + Math.floor(b.w / 2), y2: midY },
+          { name: 'Bath', type: 'bathroom', x1: b.x + Math.floor(b.w / 2) + 1, y1: b.y, x2: b.x + b.w - 1, y2: midY }
+        ];
+
+    const doorSpecs = [
+      { x: b.x + Math.floor(b.w / 2), y: b.y + b.h - 1, side: 'S', state: 'unlocked', interior: false },
+      { x: b.x + 2, y: midY, side: 'S', state: 'unlocked', interior: true }
+    ];
+    if (!isShop) {
+      doorSpecs.push({ x: b.x + b.w - 2, y: midY, side: 'S', state: 'unlocked', interior: true });
+    }
+
+    stampThinWallBuilding(chunk, {
       id: b.id,
-      name: b.name || (b.category === 'commercial' ? 'Custom Shop' : 'Custom House'),
+      name: b.name || (isShop ? 'Custom Shop' : 'Custom House'),
       category: b.category || 'house',
-      rects: [{ x1: b.x, y1: b.y, x2: b.x + b.w, y2: b.y + b.h }],
-      doorSpecs: [{ x: doorX, y: doorY, state: 'unlocked', dir: { dx: 0, dy: 1 } }],
+      rooms,
+      doorSpecs,
       seed: ((b.x * 19 + b.y * 31) % 100) / 100
     });
   }
 
-  // 3. Custom props (trees, cars, etc.)
+  // 3. Custom props
   for (const p of mapEdits.props) {
     if (p.x >= baseX && p.x < maxX && p.y >= baseY && p.y < maxY) {
       chunk.props.push({ ...p });
@@ -100,9 +114,8 @@ export function initMapEditor(player, onWorldMutated) {
   const miniCanvas = document.getElementById('minimap');
   if (!miniCanvas) return;
 
-  // Offscreen 1024x1024 overview buffer (1 pixel = 2x2 world tiles)
   const BUF_SIZE = 1024;
-  const SCALE = BUF_SIZE / MAP_SIZE; // 0.5
+  const SCALE = BUF_SIZE / MAP_SIZE;
   const offCanvas = document.createElement('canvas');
   offCanvas.width = BUF_SIZE;
   offCanvas.height = BUF_SIZE;
@@ -173,14 +186,12 @@ export function initMapEditor(player, onWorldMutated) {
     }
     octx.putImageData(img, 0, 0);
 
-    // Draw custom buildings on overview buffer
     for (const b of mapEdits.buildings) {
       octx.fillStyle = b.category === 'commercial' ? '#38bdf8' : '#f8fafc';
       octx.fillRect(b.x * SCALE, b.y * SCALE, Math.max(2, b.w * SCALE), Math.max(2, b.h * SCALE));
     }
   }
 
-  // Build full-screen modal DOM dynamically so index.html needs zero edits
   const overlay = document.createElement('div');
   overlay.id = 'world-editor-modal';
   overlay.style.cssText = [
@@ -266,7 +277,7 @@ export function initMapEditor(player, onWorldMutated) {
   let activeTool = 'pan';
   let viewX = player.x;
   let viewY = player.y;
-  let zoom = 0.55; // screen pixels per world tile
+  let zoom = 0.55;
   let selectedWx = Math.floor(player.x);
   let selectedWy = Math.floor(player.y);
 
@@ -324,7 +335,6 @@ export function initMapEditor(player, onWorldMutated) {
       }
       dirtyWorld = true;
     } else if (activeTool === 'house' || activeTool === 'shop') {
-      // Avoid duplicate building stamp on same spot
       const exists = mapEdits.buildings.some((b) => Math.hypot(b.x - wx, b.y - wy) < 6);
       if (!exists) {
         mapEdits.buildings.push({
@@ -342,7 +352,7 @@ export function initMapEditor(player, onWorldMutated) {
     } else if (activeTool === 'tree') {
       const exists = mapEdits.props.some((p) => Math.hypot(p.x - wx, p.y - wy) < 2);
       if (!exists) {
-        mapEdits.props.push({ kind: 'pine', x: wx + 0.5, y: wy + 0.5, scale: 1.05, solid: true });
+        mapEdits.props.push({ kind: 'pine', x: wx + 0.5, y: wy + 0.5, w: 0.7, d: 0.7, scale: 1.05, solid: true });
         dirtyWorld = true;
       }
     } else if (activeTool === 'car') {
@@ -352,6 +362,8 @@ export function initMapEditor(player, onWorldMutated) {
           kind: 'car',
           x: wx + 0.5,
           y: wy + 0.5,
+          w: 2.2,
+          d: 1.2,
           color: '#38bdf8',
           solid: true
         });
@@ -395,12 +407,10 @@ export function initMapEditor(player, onWorldMutated) {
     ectx.imageSmoothingEnabled = zoom < 1.5;
     ectx.drawImage(offCanvas, drawX, drawY, drawSize, drawSize);
 
-    // World border
     ectx.strokeStyle = '#475569';
     ectx.lineWidth = 2;
     ectx.strokeRect(drawX, drawY, drawSize, drawSize);
 
-    // Quarry Safe Hub ring
     ectx.strokeStyle = '#4ade80';
     ectx.lineWidth = 2;
     ectx.beginPath();
@@ -415,7 +425,6 @@ export function initMapEditor(player, onWorldMutated) {
     );
     ectx.stroke();
 
-    // Police Precinct & Distress Call markers
     ectx.fillStyle = '#38bdf8';
     ectx.beginPath();
     ectx.arc(drawX + policePrecinct.x * zoom, drawY + policePrecinct.y * zoom, 5, 0, Math.PI * 2);
@@ -428,7 +437,6 @@ export function initMapEditor(player, onWorldMutated) {
       ectx.fill();
     }
 
-    // Player marker
     ectx.fillStyle = '#ffffff';
     ectx.beginPath();
     ectx.arc(drawX + player.x * zoom, drawY + player.y * zoom, 5.5, 0, Math.PI * 2);
@@ -437,7 +445,6 @@ export function initMapEditor(player, onWorldMutated) {
     ectx.lineWidth = 2;
     ectx.stroke();
 
-    // Selected cursor crosshair
     const selX = drawX + (selectedWx + 0.5) * zoom;
     const selY = drawY + (selectedWy + 0.5) * zoom;
     ectx.strokeStyle = '#fbbf24';
@@ -538,7 +545,6 @@ export function initMapEditor(player, onWorldMutated) {
 
   overlay.querySelector('#ed-close-btn').addEventListener('click', closeEditor);
 
-  // Tap the top-left minimap to open the World Atlas & Editor
   miniCanvas.style.pointerEvents = 'auto';
   miniCanvas.style.cursor = 'pointer';
   miniCanvas.title = 'Tap to inspect & edit the 2048×2048 world map';
