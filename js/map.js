@@ -192,8 +192,59 @@ export function isBuildingRevealed(building, player, activeChunks) {
   for (const c of activeChunks) {
     for (const d of c.doors) {
       if (d.buildingId === building.id && d.state === 'open') {
-        if (Math.hypot(player.x - (d.x + 0.5), player.y - (d.y + 0.5)) < 2.6) {
+        const mx = d.orient === 'H' ? d.x + 0.5 : d.x;
+        const my = d.orient === 'H' ? d.y : d.y + 0.5;
+        if (Math.hypot(player.x - mx, player.y - my) < 2.6) {
           return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+
+function isEdgeBlocked(edgeKey, chunks) {
+  for (const c of chunks) {
+    if (c.edgeWalls && c.edgeWalls.has(edgeKey)) return true;
+    if (c.edgeDoors && c.edgeDoors.has(edgeKey)) {
+      const door = c.edgeDoors.get(edgeKey);
+      if (door && door.state !== 'open') return true;
+    }
+  }
+  return false;
+}
+
+function hitsSolidProp(nx, ny, radius, chunks) {
+  const r = Math.min(radius, 0.24);
+  for (const c of chunks) {
+    // 1. Solid interior furniture props inside buildings
+    for (const b of c.buildings) {
+      if (!b.props) continue;
+      for (const p of b.props) {
+        if (!p.solid) continue;
+        const x1 = p.x;
+        const y1 = p.y;
+        const x2 = p.x + (p.w || 1);
+        const y2 = p.y + (p.d || 1);
+        if (nx + r > x1 && nx - r < x2 && ny + r > y1 && ny - r < y2) {
+          return true;
+        }
+      }
+    }
+
+    // 2. Solid outdoor props (parked cars, pine/oak trunks, boulders)
+    if (c.props) {
+      for (const p of c.props) {
+        if (!p.solid) continue;
+        if (p.kind === 'car') {
+          if (nx + r > p.x - 1.0 && nx - r < p.x + 1.0 && ny + r > p.y - 0.55 && ny - r < p.y + 0.55) {
+            return true;
+          }
+        } else {
+          // Tree trunk / rock radius
+          if (Math.hypot(nx - p.x, ny - p.y) < r + 0.26) {
+            return true;
+          }
         }
       }
     }
@@ -204,13 +255,13 @@ export function isBuildingRevealed(building, player, activeChunks) {
 export function isTileBlocked(tx, ty, activeChunks) {
   if (tx < 0 || ty < 0 || tx >= MAP_SIZE || ty >= MAP_SIZE) return true;
   if (getTileAt(tx, ty) === 2) return true;
-  const chunks = activeChunks || getActiveChunks(tx, ty, 0);
-  const door = getDoorAt(tx, ty, chunks);
-  if (door && door.state !== 'open') return true;
   return false;
 }
 
 export function canWalkTo(nx, ny, radius, activeChunks) {
+  const chunks = activeChunks || getActiveChunks(nx, ny, 1);
+
+  // 1. Check solid tile blocks (perimeter walls, river cliff, quarry wall)
   const corners = [
     [nx - radius, ny - radius],
     [nx + radius, ny - radius],
@@ -218,8 +269,32 @@ export function canWalkTo(nx, ny, radius, activeChunks) {
     [nx + radius, ny + radius]
   ];
   for (const [cx, cy] of corners) {
-    if (isTileBlocked(Math.floor(cx), Math.floor(cy), activeChunks)) return false;
+    if (isTileBlocked(Math.floor(cx), Math.floor(cy), chunks)) return false;
   }
+
+  // 2. Check thin edge walls & closed edge doors crossed by the unit's collision circle
+  const minTx = Math.floor(nx - radius);
+  const maxTx = Math.floor(nx + radius);
+  const minTy = Math.floor(ny - radius);
+  const maxTy = Math.floor(ny + radius);
+
+  // Vertical edges (x = gridX, spanning [ty, ty + 1])
+  for (let gx = minTx + 1; gx <= maxTx; gx++) {
+    for (let ty = minTy; ty <= maxTy; ty++) {
+      if (isEdgeBlocked(`V:${gx},${ty}`, chunks)) return false;
+    }
+  }
+
+  // Horizontal edges (y = gridY, spanning [tx, tx + 1])
+  for (let gy = minTy + 1; gy <= maxTy; gy++) {
+    for (let tx = minTx; tx <= maxTx; tx++) {
+      if (isEdgeBlocked(`H:${tx},${gy}`, chunks)) return false;
+    }
+  }
+
+  // 3. Check solid furniture (beds, counters, sofas, tables, toilets) & outdoor cars/trees
+  if (hitsSolidProp(nx, ny, radius, chunks)) return false;
+
   return true;
 }
 
