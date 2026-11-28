@@ -1,24 +1,30 @@
-const CACHE = 'isowalk-live';
+const CACHE_NAME = 'isowalk-act1-network-first-v1';
 
-self.addEventListener('install', (e) => {
+self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-self.addEventListener('activate', (e) => {
-  e.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((keys) =>
+      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+    ).then(() => self.clients.claim())
   );
-  self.clients.claim();
 });
 
-self.addEventListener('fetch', (e) => {
-  e.respondWith(
-    fetch(e.request, { cache: 'no-store' })
-      .then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(e.request, copy));
-        return res;
+// Network-First: Always pull latest JS/HTML from GitHub Pages; fallback to cache offline
+self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
+
+  event.respondWith(
+    fetch(event.request)
+      .then((networkRes) => {
+        if (networkRes && networkRes.status === 200) {
+          const copy = networkRes.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+        }
+        return networkRes;
       })
-      .catch(() => caches.match(e.request, { ignoreSearch: true }))
+      .catch(() => caches.match(event.request))
   );
 });
