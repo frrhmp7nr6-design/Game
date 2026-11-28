@@ -124,9 +124,13 @@ initMapEditor(player, () => {
   activeChunks = getActiveChunks(player.x, player.y, 1);
 });
 
-closeCraftBtn.addEventListener('click', () => {
-  craftModal.classList.remove('open');
-});
+if (closeCraftBtn) {
+  closeCraftBtn.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    craftModal.classList.remove('open');
+  });
+}
 
 initNetwork(player, {
   onRemoteDoor: ({ key, state }) => {
@@ -166,14 +170,26 @@ initNetwork(player, {
   }
 });
 
+// Select Survivor Archetype (fires immediately on pointerdown or click on iPad Safari)
+function selectArchetype(arch) {
+  if (!arch || player.started) return;
+  applyArchetypeLoadout(player, arch);
+  archBadge.textContent = arch.toUpperCase();
+  archModal.classList.add('hidden');
+  player.started = true;
+  showToast('Tap the minimap anytime to inspect or edit the 2048×2048 world!');
+}
+
 document.querySelectorAll('.arch-btn').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    const arch = btn.dataset.arch;
-    applyArchetypeLoadout(player, arch);
-    archBadge.textContent = arch.toUpperCase();
-    archModal.classList.add('hidden');
-    player.started = true;
-    showToast('Tap the minimap anytime to inspect or edit the 2048×2048 world!');
+  const arch = btn.dataset.arch;
+  btn.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    selectArchetype(arch);
+  });
+  btn.addEventListener('click', (e) => {
+    e.preventDefault();
+    selectArchetype(arch);
   });
 });
 
@@ -293,9 +309,7 @@ function handleConvoyLoad() {
     points: convoyGarage.points,
     specialists: convoyGarage.specialists
   });
-  showToast(
-    `🚛 Loaded +${added} Convoy Supplies & earned +${added * 2} Scrap!`
-  );
+  showToast(`🚛 Loaded +${added} Convoy Supplies & earned +${added * 2} Scrap!`);
 }
 
 function handleSpecialAction() {
