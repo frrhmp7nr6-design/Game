@@ -268,12 +268,12 @@
     .modal-backdrop {
       position: fixed;
       inset: 0;
-      background: rgba(9, 13, 20, 0.82);
+      background: rgba(9, 13, 20, 0.84);
       display: none;
       align-items: center;
       justify-content: center;
       padding: 16px;
-      z-index: 50;
+      z-index: 150;
       backdrop-filter: blur(6px);
       -webkit-backdrop-filter: blur(6px);
     }
@@ -284,10 +284,12 @@
 
     #archetype-modal {
       display: flex;
+      z-index: 200;
+      pointer-events: auto;
     }
 
     #archetype-modal.hidden {
-      display: none;
+      display: none !important;
     }
 
     .modal-card {
@@ -300,6 +302,7 @@
       border-radius: 16px;
       padding: 18px;
       box-shadow: 0 20px 45px rgba(0, 0, 0, 0.65);
+      pointer-events: auto;
     }
 
     .arch-grid {
@@ -311,12 +314,13 @@
 
     .arch-btn {
       background: #1e293b;
-      border: 1px solid #334155;
+      border: 1.5px solid #334155;
       border-radius: 12px;
       padding: 12px;
       text-align: left;
       color: #f8fafc;
       cursor: pointer;
+      pointer-events: auto;
     }
 
     .arch-btn:active {
@@ -329,12 +333,14 @@
       font-weight: 800;
       color: #38bdf8;
       margin-bottom: 4px;
+      pointer-events: none;
     }
 
     .arch-desc {
       font-size: 11px;
       color: #cbd5e1;
       line-height: 1.35;
+      pointer-events: none;
     }
 
     .bag-item {
@@ -376,7 +382,7 @@
       opacity: 0;
       pointer-events: none;
       transition: opacity 0.18s ease, transform 0.18s ease;
-      z-index: 60;
+      z-index: 250;
       white-space: nowrap;
       max-width: 92vw;
       overflow: hidden;
@@ -480,19 +486,43 @@
         Deploy into the Rockmart Quarry Safe Hub, craft gear, rescue specialists, and launch the Iron Convoy.
       </div>
       <div class="arch-grid">
-        <button class="arch-btn" data-arch="bruiser">
+        <button
+          type="button"
+          class="arch-btn"
+          data-arch="bruiser"
+          onpointerdown="window.pickArchetype && window.pickArchetype('bruiser')"
+          onclick="window.pickArchetype && window.pickArchetype('bruiser')"
+        >
           <div class="arch-title">🛡️ THE BRUISER</div>
           <div class="arch-desc">140 HP • Starts with Crowbar • +35% Melee DMG &amp; Knockback</div>
         </button>
-        <button class="arch-btn" data-arch="medic">
+        <button
+          type="button"
+          class="arch-btn"
+          data-arch="medic"
+          onpointerdown="window.pickArchetype && window.pickArchetype('medic')"
+          onclick="window.pickArchetype && window.pickArchetype('medic')"
+        >
           <div class="arch-title">🩺 THE MEDIC</div>
           <div class="arch-desc">105 HP • Starts with 2x Bandages • Team Regen Aura</div>
         </button>
-        <button class="arch-btn" data-arch="scavenger">
+        <button
+          type="button"
+          class="arch-btn"
+          data-arch="scavenger"
+          onpointerdown="window.pickArchetype && window.pickArchetype('scavenger')"
+          onclick="window.pickArchetype && window.pickArchetype('scavenger')"
+        >
           <div class="arch-title">🗝️ THE SCAVENGER</div>
           <div class="arch-desc">100 HP • 10 Bag Slots • Unlimited Lockpicks &amp; Hauler Speed</div>
         </button>
-        <button class="arch-btn" data-arch="marksman">
+        <button
+          type="button"
+          class="arch-btn"
+          data-arch="marksman"
+          onpointerdown="window.pickArchetype && window.pickArchetype('marksman')"
+          onclick="window.pickArchetype && window.pickArchetype('marksman')"
+        >
           <div class="arch-title">🎯 THE MARKSMAN</div>
           <div class="arch-desc">95 HP • Starts with 9mm Pistol • +25% Ranged Reach &amp; Crit</div>
         </button>
@@ -532,8 +562,17 @@
   <div id="toast"></div>
 
   <script>
+    window.pickArchetype = function (arch) {
+      var modal = document.getElementById('archetype-modal');
+      if (modal) modal.classList.add('hidden');
+      window.__selectedArchetype = arch;
+      if (window.__applyArchetype) {
+        window.__applyArchetype(arch);
+      }
+    };
+
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js').catch(() => {});
+      navigator.serviceWorker.register('./sw.js').catch(function () {});
     }
   </script>
   <script type="module" src="./js/main.js"></script>
