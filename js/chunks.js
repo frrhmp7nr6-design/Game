@@ -1,3 +1,4 @@
+import { stampThinWallBuilding, generateFloorplanBuilding } from './buildings.js';
 import { applyEditorOverridesToChunk } from './editor.js';
 
 export const CHUNK_SIZE = 32;
@@ -5,7 +6,6 @@ export const WORLD_CHUNKS = 64; // 64 x 64 chunks = 2048 x 2048 tiles
 export const MAP_SIZE = CHUNK_SIZE * WORLD_CHUNKS; // 2048
 export const CENTER = 1024;
 
-// Proportional 46x38 Quarry Safe Hub in the south-central valley
 export const QUARRY_X = 1024;
 export const QUARRY_Y = 1460;
 export const QUARRY_RX = 46;
@@ -213,199 +213,14 @@ export function getDistrictAt(wx, wy) {
 
 export function getZoneInfo(wx, wy) {
   const district = getDistrictAt(wx, wy);
-  if (district === 'wall') {
-    return { ring: 4, name: 'Perimeter Quarantine Wall', color: '#94a3b8' };
-  }
-  if (district === 'quarry') {
-    return { ring: 0, name: 'Rockmart Quarry Safe Hub', color: '#4ade80' };
-  }
-  if (district === 'downtown') {
-    return { ring: 1, name: 'Downtown Rockmart', color: '#38bdf8' };
-  }
-  if (district === 'suburb_west') {
-    return { ring: 1, name: 'Oakridge Suburbs', color: '#38bdf8' };
-  }
-  if (district === 'suburb_east') {
-    return { ring: 2, name: 'Eastbrook Suburbs', color: '#f59e0b' };
-  }
-  if (district === 'highway_strip') {
-    return { ring: 2, name: 'US-278 Commercial Corridor', color: '#f59e0b' };
-  }
-  if (district === 'rural') {
-    return { ring: 2, name: 'Cedar Valley Farmlands', color: '#f59e0b' };
-  }
+  if (district === 'wall') return { ring: 4, name: 'Perimeter Quarantine Wall', color: '#94a3b8' };
+  if (district === 'quarry') return { ring: 0, name: 'Rockmart Quarry Safe Hub', color: '#4ade80' };
+  if (district === 'downtown') return { ring: 1, name: 'Downtown Rockmart', color: '#38bdf8' };
+  if (district === 'suburb_west') return { ring: 1, name: 'Oakridge Suburbs', color: '#38bdf8' };
+  if (district === 'suburb_east') return { ring: 2, name: 'Eastbrook Suburbs', color: '#f59e0b' };
+  if (district === 'highway_strip') return { ring: 2, name: 'US-278 Commercial Corridor', color: '#f59e0b' };
+  if (district === 'rural') return { ring: 2, name: 'Cedar Valley Farmlands', color: '#f59e0b' };
   return { ring: 3, name: 'Outer Pine Quarantine', color: '#ef4444' };
-}
-
-const HOUSE_PALETTES = [
-  { name: 'Clapboard White', wallL: '#cbd5e1', wallR: '#94a3b8', roofL: '#475569', roofR: '#334155', trim: '#f8fafc' },
-  { name: 'Georgia Red Brick', wallL: '#991b1b', wallR: '#7f1d1d', roofL: '#3f3f46', roofR: '#27272a', trim: '#fef3c7' },
-  { name: 'Sage Craftsman', wallL: '#4d7c0f', wallR: '#3f6212', roofL: '#5c2d16', roofR: '#422006', trim: '#ecfccb' },
-  { name: 'Colonial Blue', wallL: '#1d4ed8', wallR: '#1e40af', roofL: '#334155', roofR: '#1e293b', trim: '#dbeafe' },
-  { name: 'Warm Sand Ranch', wallL: '#b45309', wallR: '#92400e', roofL: '#44403c', roofR: '#292524', trim: '#fef3c7' },
-  { name: 'Weathered Cabin', wallL: '#78350f', wallR: '#5c280b', roofL: '#166534', roofR: '#14532d', trim: '#fed7aa' }
-];
-
-const COMMERCIAL_PALETTES = [
-  { name: 'Downtown Brick', wallL: '#7f1d1d', wallR: '#651515', roofL: '#334155', roofR: '#1e293b', awning: '#dc2626' },
-  { name: 'Cinderblock Slate', wallL: '#475569', wallR: '#334155', roofL: '#1e293b', roofR: '#0f172a', awning: '#0284c7' },
-  { name: 'Stucco Cream', wallL: '#a16207', wallR: '#854d0e', roofL: '#3f3f46', roofR: '#27272a', awning: '#16a34a' },
-  { name: 'Steel Warehouse', wallL: '#374151', wallR: '#1f2937', roofL: '#4b5563', roofR: '#374151', awning: '#d97706' },
-  { name: 'Midtown Stone', wallL: '#57534e', wallR: '#44403c', roofL: '#292524', roofR: '#1c1917', awning: '#7c3aed' }
-];
-
-export function stampCompoundBuilding(chunk, config) {
-  const {
-    id,
-    name,
-    category,
-    rects,
-    doorSpecs,
-    seed,
-    defaultRevealed = false,
-    porchRect = null
-  } = config;
-
-  const cellSet = new Set();
-  let minX = Infinity;
-  let minY = Infinity;
-  let maxX = -Infinity;
-  let maxY = -Infinity;
-
-  for (const r of rects) {
-    for (let y = r.y1; y <= r.y2; y++) {
-      for (let x = r.x1; x <= r.x2; x++) {
-        cellSet.add(`${x},${y}`);
-        if (x < minX) minX = x;
-        if (y < minY) minY = y;
-        if (x > maxX) maxX = x;
-        if (y > maxY) maxY = y;
-      }
-    }
-  }
-
-  const palette =
-    category === 'commercial'
-      ? COMMERCIAL_PALETTES[Math.floor(seed * 97) % COMMERCIAL_PALETTES.length]
-      : HOUSE_PALETTES[Math.floor(seed * 131) % HOUSE_PALETTES.length];
-
-  const roofStyle =
-    category === 'commercial'
-      ? 'parapet'
-      : seed > 0.45
-      ? 'gable'
-      : 'hip';
-
-  const wallTiles = [];
-
-  for (const key of cellSet) {
-    const [wx, wy] = key.split(',').map(Number);
-    const hasN = cellSet.has(`${wx},${wy - 1}`);
-    const hasS = cellSet.has(`${wx},${wy + 1}`);
-    const hasW = cellSet.has(`${wx - 1},${wy}`);
-    const hasE = cellSet.has(`${wx + 1},${wy}`);
-
-    const isPerimeter = !hasN || !hasS || !hasW || !hasE;
-    const doorSpec = doorSpecs.find((d) => d.x === wx && d.y === wy);
-
-    const lx = wx - chunk.cx * CHUNK_SIZE;
-    const ly = wy - chunk.cy * CHUNK_SIZE;
-    const inChunk = lx >= 0 && lx < CHUNK_SIZE && ly >= 0 && ly < CHUNK_SIZE;
-
-    if (doorSpec) {
-      if (inChunk) {
-        chunk.tiles[ly * CHUNK_SIZE + lx] = 1;
-        const doorKey = `${wx},${wy}`;
-        const isOpen = openedDoors.has(doorKey);
-        const maxHp = doorSpec.state === 'barricaded' ? 90 : 60;
-        chunk.doors.push({
-          key: doorKey,
-          x: wx,
-          y: wy,
-          buildingId: id,
-          state: isOpen ? 'open' : doorSpec.state,
-          hp: doorDamage.has(doorKey) ? doorDamage.get(doorKey) : maxHp,
-          maxHp
-        });
-
-        const stepDir = doorSpec.dir || { dx: 0, dy: 1 };
-        for (let step = 1; step <= 4; step++) {
-          const sx = lx + stepDir.dx * step;
-          const sy = ly + stepDir.dy * step;
-          if (sx >= 0 && sx < CHUNK_SIZE && sy >= 0 && sy < CHUNK_SIZE) {
-            if (chunk.tiles[sy * CHUNK_SIZE + sx] === 0) {
-              chunk.tiles[sy * CHUNK_SIZE + sx] = category === 'rural' ? 5 : 1;
-            }
-          }
-        }
-      }
-    } else if (isPerimeter) {
-      if (inChunk) chunk.tiles[ly * CHUNK_SIZE + lx] = 2;
-      const isCorner = (!hasN && !hasW) || (!hasN && !hasE) || (!hasS && !hasW) || (!hasS && !hasE);
-      const hasWindow =
-        !isCorner &&
-        ((!hasS && (wx + wy) % 2 === 0) || (!hasE && (wx + wy) % 2 === 1));
-      const isBoarded = hasWindow && doorSpecs[0]?.state === 'barricaded';
-      wallTiles.push({
-        x: wx,
-        y: wy,
-        faceSouth: !hasS,
-        faceEast: !hasE,
-        hasWindow,
-        isBoarded
-      });
-    } else {
-      if (inChunk) chunk.tiles[ly * CHUNK_SIZE + lx] = 1;
-    }
-  }
-
-  if (porchRect) {
-    for (let py = porchRect.y1; py <= porchRect.y2; py++) {
-      for (let px = porchRect.x1; px <= porchRect.x2; px++) {
-        const lx = px - chunk.cx * CHUNK_SIZE;
-        const ly = py - chunk.cy * CHUNK_SIZE;
-        if (lx >= 0 && lx < CHUNK_SIZE && ly >= 0 && ly < CHUNK_SIZE) {
-          if (chunk.tiles[ly * CHUNK_SIZE + lx] === 0) {
-            chunk.tiles[ly * CHUNK_SIZE + lx] = 1;
-          }
-        }
-      }
-    }
-  }
-
-  const props = [];
-  const mainR = rects[0];
-  if (mainR && mainR.x2 - mainR.x1 >= 6 && mainR.y2 - mainR.y1 >= 6) {
-    if (category === 'commercial') {
-      props.push({ x: mainR.x1 + 2, y: mainR.y1 + 1, w: 3, d: 1, kind: 'counter' });
-      props.push({ x: mainR.x1 + 2, y: mainR.y1 + 4, w: 3, d: 1, kind: 'shelf' });
-      if (mainR.x2 - mainR.x1 >= 9) {
-        props.push({ x: mainR.x2 - 4, y: mainR.y1 + 4, w: 3, d: 1, kind: 'shelf' });
-      }
-    } else {
-      props.push({ x: mainR.x1 + 1, y: mainR.y1 + 1, w: 2, d: 2, kind: 'bed' });
-      props.push({ x: mainR.x2 - 3, y: mainR.y1 + 1, w: 3, d: 1, kind: 'counter' });
-      props.push({ x: mainR.x1 + 2, y: mainR.y2 - 3, w: 2, d: 1, kind: 'table' });
-    }
-  }
-
-  chunk.buildings.push({
-    id,
-    name,
-    category,
-    rects,
-    x1: minX,
-    y1: minY,
-    x2: maxX,
-    y2: maxY,
-    cellSet,
-    wallTiles,
-    props,
-    palette,
-    roofStyle,
-    porchRect,
-    defaultRevealed
-  });
 }
 
 function isLotClear(bx, by, bw, bh, margin = 2) {
@@ -417,98 +232,6 @@ function isLotClear(bx, by, bw, bh, margin = 2) {
     }
   }
   return true;
-}
-
-function buildHouseBlueprint(chunk, id, name, bx, by, bw, bh, doorState, seed, isRural = false) {
-  const shapeRoll = Math.floor(seed * 100) % 4;
-  const rects = [{ x1: bx, y1: by, x2: bx + bw, y2: by + bh }];
-
-  if (shapeRoll === 1 && bw >= 7 && isLotClear(bx + bw - 3, by + bh, 5, 3, 1)) {
-    rects.push({
-      x1: bx + bw - 3,
-      y1: by + bh,
-      x2: bx + bw + 2,
-      y2: by + bh + 3
-    });
-  } else if (shapeRoll === 2 && bh >= 7 && isLotClear(bx - 3, by + 1, 3, bh - 3, 1)) {
-    rects.push({
-      x1: bx - 3,
-      y1: by + 1,
-      x2: bx,
-      y2: by + bh - 2
-    });
-  } else if (shapeRoll === 3 && bw >= 8 && isLotClear(bx + 2, by - 2, bw - 4, 2, 1)) {
-    rects.push({
-      x1: bx + 2,
-      y1: by - 2,
-      x2: bx + bw - 2,
-      y2: by
-    });
-  }
-
-  const doorX = bx + Math.floor(bw / 2);
-  const doorY = by + bh;
-  const porchRect =
-    shapeRoll !== 1
-      ? { x1: doorX - 2, y1: doorY + 1, x2: doorX + 2, y2: doorY + 2 }
-      : null;
-
-  stampCompoundBuilding(chunk, {
-    id,
-    name,
-    category: isRural ? 'rural' : 'house',
-    rects,
-    doorSpecs: [{ x: doorX, y: doorY, state: doorState, dir: { dx: 0, dy: 1 } }],
-    seed,
-    porchRect
-  });
-
-  return {
-    lootX: bx + Math.floor(bw / 2) + 0.5,
-    lootY: by + Math.floor(bh / 2) + 0.5,
-    zX: bx + 2.5,
-    zY: by + 2.5
-  };
-}
-
-function buildCommercialBlueprint(chunk, id, name, bx, by, bw, bh, doorState, seed) {
-  const shapeRoll = Math.floor(seed * 100) % 3;
-  const rects = [{ x1: bx, y1: by, x2: bx + bw, y2: by + bh }];
-
-  if (shapeRoll === 1 && bw >= 9 && isLotClear(bx + bw - 4, by + bh, 4, 4, 1)) {
-    rects.push({
-      x1: bx + bw - 4,
-      y1: by + bh,
-      x2: bx + bw,
-      y2: by + bh + 4
-    });
-  } else if (shapeRoll === 2 && bw >= 10 && isLotClear(bx + 1, by - 3, bw - 2, 3, 1)) {
-    rects.push({
-      x1: bx + 1,
-      y1: by - 3,
-      x2: bx + bw - 1,
-      y2: by
-    });
-  }
-
-  const doorX = bx + Math.floor(bw / 2);
-  const doorY = by + bh;
-
-  stampCompoundBuilding(chunk, {
-    id,
-    name,
-    category: 'commercial',
-    rects,
-    doorSpecs: [{ x: doorX, y: doorY, state: doorState, dir: { dx: 0, dy: 1 } }],
-    seed
-  });
-
-  return {
-    lootX: bx + Math.floor(bw / 2) + 0.5,
-    lootY: by + Math.floor(bh / 2) + 0.5,
-    zX: bx + 2.5,
-    zY: by + 2.5
-  };
 }
 
 function populateEnvironmentProps(chunk, district) {
@@ -560,6 +283,8 @@ function populateEnvironmentProps(chunk, district) {
               kind: 'car',
               x: wx + 0.5,
               y: wy + 0.5,
+              w: 2.2,
+              d: 1.2,
               color: r > 0.92 ? '#991b1b' : r > 0.88 ? '#1d4ed8' : '#cbd5e1',
               solid: true
             });
@@ -571,14 +296,14 @@ function populateEnvironmentProps(chunk, district) {
 
   const treeAttempts =
     district === 'wilderness'
-      ? 26
+      ? 24
       : district === 'rural'
-      ? 18
+      ? 16
       : district === 'suburb_west' || district === 'suburb_east'
-      ? 10
+      ? 9
       : district === 'quarry'
       ? 3
-      : 5;
+      : 4;
 
   for (let i = 0; i < treeAttempts; i++) {
     const lx = 1 + Math.floor(hash2d(chunk.cx * 31 + i, chunk.cy * 17 + 3) * (CHUNK_SIZE - 2));
@@ -610,6 +335,8 @@ function populateEnvironmentProps(chunk, district) {
       kind,
       x: wx,
       y: wy,
+      w: 0.7,
+      d: 0.7,
       scale: 0.85 + hash2d(i * 11, chunk.cx + chunk.cy) * 0.4,
       solid: kind === 'pine' || kind === 'oak' || kind === 'rock'
     });
@@ -626,6 +353,8 @@ function generateChunk(cx, cy) {
     roadKinds,
     buildings: [],
     doors: [],
+    edgeWalls: new Map(),
+    edgeDoors: new Map(),
     loot: [],
     zombies: [],
     props: []
@@ -671,27 +400,33 @@ function generateChunk(cx, cy) {
     }
   }
 
-  // Guaranteed Landmarks: Quarry Safe Hub
+  // 1. Quarry Safe Hub Buildings (with thin walls & interior rooms)
   if (Math.abs(baseX + 16 - QUARRY_X) <= 48 && Math.abs(baseY + 16 - QUARRY_Y) <= 48) {
-    stampCompoundBuilding(chunk, {
+    stampThinWallBuilding(chunk, {
       id: 'quarry-garage',
       name: 'Convoy Garage',
       category: 'commercial',
-      rects: [{ x1: QUARRY_X - 16, y1: QUARRY_Y - 16, x2: QUARRY_X - 6, y2: QUARRY_Y - 7 }],
+      rooms: [
+        { name: 'Bay Floor', type: 'garage', x1: QUARRY_X - 15, y1: QUARRY_Y - 15, x2: QUARRY_X - 7, y2: QUARRY_Y - 8 }
+      ],
       doorSpecs: [
-        { x: QUARRY_X - 11, y: QUARRY_Y - 7, state: 'unlocked', dir: { dx: 0, dy: 1 } },
-        { x: QUARRY_X - 6, y: QUARRY_Y - 12, state: 'unlocked', dir: { dx: 1, dy: 0 } }
+        { x: QUARRY_X - 11, y: QUARRY_Y - 8, side: 'S', state: 'unlocked', interior: false },
+        { x: QUARRY_X - 7, y: QUARRY_Y - 12, side: 'E', state: 'unlocked', interior: false }
       ],
       seed: 0.42,
       defaultRevealed: true
     });
 
-    stampCompoundBuilding(chunk, {
+    stampThinWallBuilding(chunk, {
       id: 'quarry-depot',
       name: 'Quarry Depot',
       category: 'commercial',
-      rects: [{ x1: QUARRY_X + 6, y1: QUARRY_Y - 16, x2: QUARRY_X + 16, y2: QUARRY_Y - 7 }],
-      doorSpecs: [{ x: QUARRY_X + 6, y: QUARRY_Y - 12, state: 'unlocked', dir: { dx: -1, dy: 0 } }],
+      rooms: [
+        { name: 'Supply Room', type: 'retail', x1: QUARRY_X + 7, y1: QUARRY_Y - 15, x2: QUARRY_X + 15, y2: QUARRY_Y - 8 }
+      ],
+      doorSpecs: [
+        { x: QUARRY_X + 7, y: QUARRY_Y - 12, side: 'W', state: 'unlocked', interior: false }
+      ],
       seed: 0.77,
       defaultRevealed: true
     });
@@ -728,50 +463,52 @@ function generateChunk(cx, cy) {
     }
   }
 
-  // Rockmart Police Precinct at (1120, 920)
+  // 2. Rockmart Police Precinct (Multi-room station with Armory, Dispatch & Cells)
   if (cx === 35 && cy === 28) {
-    stampCompoundBuilding(chunk, {
+    stampThinWallBuilding(chunk, {
       id: 'rockmart-pd',
       name: 'Rockmart Police Precinct',
       category: 'commercial',
-      rects: [
-        { x1: 1120, y1: 904, x2: 1132, y2: 916 },
-        { x1: 1128, y1: 916, x2: 1132, y2: 920 }
+      rooms: [
+        { name: 'Lobby & Dispatch', type: 'retail', x1: 1120, y1: 910, x2: 1131, y2: 916 },
+        { name: 'Radio & Armory', type: 'garage', x1: 1120, y1: 904, x2: 1126, y2: 909 },
+        { name: 'Holding Cells', type: 'shed', x1: 1127, y1: 904, x2: 1131, y2: 909 }
       ],
       doorSpecs: [
-        { x: 1125, y: 916, state: 'locked', dir: { dx: 0, dy: 1 } },
-        { x: 1120, y: 910, state: 'barricaded', dir: { dx: -1, dy: 0 } }
+        { x: 1125, y: 916, side: 'S', state: 'locked', interior: false },
+        { x: 1123, y: 909, side: 'S', state: 'locked', interior: true },
+        { x: 1129, y: 909, side: 'S', state: 'unlocked', interior: true }
       ],
       seed: 0.22
     });
 
-    addChunkLoot(chunk, 'pd-radio-1', 1124.5, 907.5, {
+    addChunkLoot(chunk, 'pd-radio-1', 1122.5, 906.5, {
       name: 'Police Radio',
       type: 'radio',
       charges: 3,
       color: '#38bdf8'
     });
-    addChunkLoot(chunk, 'pd-radio-2', 1129.5, 907.5, {
+    addChunkLoot(chunk, 'pd-radio-2', 1124.5, 906.5, {
       name: 'Police Radio',
       type: 'radio',
       charges: 3,
       color: '#38bdf8'
     });
-    addChunkLoot(chunk, 'pd-pistol', 1129.5, 912.5, {
+    addChunkLoot(chunk, 'pd-pistol', 1129.5, 906.5, {
       name: '9mm Pistol',
       type: 'weapon',
       weaponId: 'pistol',
       color: '#94a3b8'
     });
 
-    addChunkZombie(chunk, 'z-pd-1', 1123.5, 912.5, 2, false);
-    addChunkZombie(chunk, 'z-pd-2', 1129.5, 909.5, 2, false);
+    addChunkZombie(chunk, 'z-pd-1', 1123.5, 913.5, 2, false);
+    addChunkZombie(chunk, 'z-pd-2', 1129.5, 913.5, 2, false);
     populateEnvironmentProps(chunk, 'downtown');
     applyEditorOverridesToChunk(chunk);
     return chunk;
   }
 
-  // Regional District Building & Encounter Rules
+  // 3. District Procedural Floorplans (1BR/1BA, 3BR/2BA + Garage, 4BR/3BA Mansion, Storefronts & Sheds)
   const midX = baseX + 16;
   const midY = baseY + 16;
   const district = getDistrictAt(midX, midY);
@@ -785,46 +522,58 @@ function generateChunk(cx, cy) {
 
     const seed = hash2d(cx, cy);
     const spawnThreshold = isDowntown
-      ? 0.05
-      : isSuburb
       ? 0.08
+      : isSuburb
+      ? 0.12
       : isHighwayStrip
-      ? 0.15
+      ? 0.18
       : district === 'rural'
-      ? 0.45
-      : 0.72;
+      ? 0.48
+      : 0.75;
 
     if (seed > spawnThreshold) {
-      let targetRoadY = null;
-      for (let y = baseY + 11; y <= baseY + 29; y++) {
-        if (getRoadType(baseX + 16, y) === 3) {
-          targetRoadY = y;
-          break;
-        }
-      }
-
       const lots = [];
-      if (targetRoadY !== null && !isRural) {
-        const by = targetRoadY - 12;
-        if (by >= baseY + 1) {
-          lots.push({ bx: baseX + 3, by, bw: 9, bh: 8, s: hash2d(cx * 5, cy * 3) });
-          lots.push({ bx: baseX + 17, by, bw: 9, bh: 8, s: hash2d(cx * 11, cy * 7) });
+      const roll = hash2d(cx * 7, cy * 13);
+
+      if (isDowntown || isHighwayStrip) {
+        lots.push({ bx: baseX + 4, by: baseY + 4, tier: 'commercial', w: 9, h: 8, s: roll });
+        lots.push({
+          bx: baseX + 17,
+          by: baseY + 16,
+          tier: isDowntown && roll > 0.65 ? 'cottage_1br' : 'commercial',
+          w: 9,
+          h: 8,
+          s: hash2d(cx * 19, cy * 23)
+        });
+      } else if (isSuburb) {
+        if (roll > 0.82) {
+          // Luxury 4BR/3BA Estate Mansion + 2-Car Garage
+          lots.push({ bx: baseX + 5, by: baseY + 5, tier: 'mansion', w: 15, h: 12, s: roll });
+        } else if (roll > 0.32) {
+          // 3BR/2BA Family Home + Attached Garage
+          lots.push({ bx: baseX + 4, by: baseY + 4, tier: 'family_3br', w: 11, h: 9, s: roll });
+          lots.push({ bx: baseX + 18, by: baseY + 17, tier: 'cottage_1br', w: 7, h: 6, s: hash2d(cx * 11, cy * 7) });
+        } else {
+          // Pair of 1BR/1BA Starter Cottages
+          lots.push({ bx: baseX + 4, by: baseY + 5, tier: 'cottage_1br', w: 7, h: 6, s: roll });
+          lots.push({ bx: baseX + 17, by: baseY + 17, tier: 'cottage_1br', w: 7, h: 6, s: hash2d(cx * 5, cy * 3) });
         }
-      } else if (!isRural) {
-        lots.push({ bx: baseX + 4, by: baseY + 4, bw: 9, bh: 8, s: hash2d(cx * 7, cy * 13) });
-        lots.push({ bx: baseX + 18, by: baseY + 17, bw: 9, bh: 8, s: hash2d(cx * 19, cy * 23) });
       } else {
-        const bx = baseX + 6 + Math.floor(hash2d(cx + 3, cy) * 9);
-        const by = baseY + 6 + Math.floor(hash2d(cx, cy + 5) * 9);
-        lots.push({ bx, by, bw: 9, bh: 8, s: hash2d(cx * 17, cy * 19), rural: true });
+        // Rural Homestead (1BR Cabin or 3BR Farmhouse)
+        const tier = roll > 0.55 ? 'family_3br' : 'cottage_1br';
+        lots.push({
+          bx: baseX + 6,
+          by: baseY + 6,
+          tier,
+          w: tier === 'family_3br' ? 11 : 7,
+          h: tier === 'family_3br' ? 9 : 6,
+          s: roll,
+          rural: true
+        });
       }
 
       lots.forEach((lot, idx) => {
-        if (!isLotClear(lot.bx, lot.by, lot.bw, lot.bh, 2)) return;
-
-        const isCommercial =
-          !lot.rural &&
-          (isHighwayStrip || (isDowntown && lot.s > 0.35));
+        if (!isLotClear(lot.bx, lot.by, lot.w, lot.h, 2)) return;
 
         const doorRoll = hash2d(cx + idx * 17, cy + 29);
         const doorState =
@@ -852,57 +601,54 @@ function generateChunk(cx, cy) {
           'Craftsman Home',
           'Georgia Brick Ranch',
           'Oakridge Bungalow',
-          'Colonial Two-Story',
+          'Colonial Residence',
           'Wrap-Porch Cottage',
-          'Suburban Split-Level'
+          'Magnolia Estate'
         ];
         const ruralNames = [
           'Valley Farmhouse',
-          'Cedar Timber Barn',
+          'Cedar Homestead',
           'Pine Woods Cabin',
-          'Creekside Homestead'
+          'Creekside Ranch'
         ];
 
         const namePool = lot.rural
           ? ruralNames
-          : isCommercial
+          : lot.tier === 'commercial'
           ? commNames
           : houseNames;
         const bName = namePool[Math.floor(hash2d(cx * 3 + idx, cy * 7) * namePool.length)];
         const bId = `b-${cx}-${cy}-${idx}`;
 
-        const spot = isCommercial
-          ? buildCommercialBlueprint(chunk, bId, bName, lot.bx, lot.by, lot.bw, lot.bh, doorState, lot.s)
-          : buildHouseBlueprint(chunk, bId, bName, lot.bx, lot.by, lot.bw, lot.bh, doorState, lot.s, lot.rural);
+        const res = generateFloorplanBuilding(chunk, {
+          id: bId,
+          name: bName,
+          bx: lot.bx,
+          by: lot.by,
+          tier: lot.tier,
+          doorState,
+          seed: lot.s
+        });
 
-        if (idx === 0) {
-          const crateRoll = hash2d(cx + 51, cy + 59);
-          const supplyItem =
-            zone.ring === 3
-              ? { name: 'Prototype Convoy Core', type: 'heavy', value: 6, color: '#e879f9' }
-              : crateRoll > 0.66 || isHighwayStrip
-              ? { name: 'Heavy Supply Crate', type: 'heavy', value: 4, color: '#fb923c' }
-              : zone.ring === 1
-              ? { name: 'Scrap Plating', type: 'convoy', value: 1, color: '#22d3ee' }
-              : { name: 'Tanker Fuel Drum', type: 'convoy', value: 2, color: '#f59e0b' };
+        // Room-matched loot spawns
+        res.lootSpots.forEach((spot, sIdx) => {
+          const item =
+            spot.room === 'bathroom'
+              ? { name: 'Bandage', type: 'med', hunger: 0, hp: 40, color: '#f8fafc' }
+              : spot.room === 'garage' || spot.room === 'stockroom'
+              ? zone.ring === 3
+                ? { name: 'Prototype Convoy Core', type: 'heavy', value: 6, color: '#e879f9' }
+                : { name: 'Scrap Plating', type: 'convoy', value: 1, color: '#22d3ee' }
+              : { name: 'MRE Pack', type: 'food', hunger: 55, hp: 10, color: '#eab308' };
 
-          addChunkLoot(chunk, `loot-main-${cx}-${cy}`, spot.lootX, spot.lootY, supplyItem);
-        } else {
-          const secRoll = hash2d(cx + 41, cy + 43);
-          const secItem =
-            secRoll < 0.25
-              ? { name: 'Lockpick Set', type: 'tool', toolId: 'lockpick', color: '#fbbf24' }
-              : secRoll < 0.65
-              ? { name: 'MRE Pack', type: 'food', hunger: 55, hp: 10, color: '#eab308' }
-              : { name: 'Bandage', type: 'med', hunger: 0, hp: 40, color: '#f8fafc' };
-          addChunkLoot(chunk, `loot-sec-${cx}-${cy}-${idx}`, spot.lootX, spot.lootY, secItem);
-        }
+          addChunkLoot(chunk, `loot-${cx}-${cy}-${idx}-${sIdx}`, spot.x, spot.y, item);
+        });
 
         addChunkZombie(
           chunk,
           `z-in-${cx}-${cy}-${idx}`,
-          spot.zX,
-          spot.zY,
+          res.zX,
+          res.zY,
           zone.ring,
           zone.ring === 3 && idx === 0
         );
