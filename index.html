@@ -2,124 +2,538 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+  />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <title>IsoWalk: Act 1</title>
   <link rel="manifest" href="./manifest.json" />
-  <link rel="stylesheet" href="./css/style.css" />
+  <style>
+    * {
+      box-sizing: border-box;
+      touch-action: manipulation;
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #090d14;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: #f8fafc;
+      position: fixed;
+      inset: 0;
+    }
+
+    #game {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      touch-action: none;
+    }
+
+    /* Top HUD */
+    #hud-top {
+      position: fixed;
+      top: max(10px, env(safe-area-inset-top));
+      left: max(12px, env(safe-area-inset-left));
+      right: max(12px, env(safe-area-inset-right));
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      pointer-events: none;
+      z-index: 20;
+    }
+
+    .hud-card {
+      background: rgba(15, 23, 42, 0.86);
+      border: 1px solid rgba(51, 65, 85, 0.85);
+      border-radius: 12px;
+      padding: 8px 12px;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+    }
+
+    #vitals-card {
+      min-width: 175px;
+    }
+
+    .vital-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.4px;
+      margin-bottom: 3px;
+    }
+
+    .vital-bar {
+      width: 100%;
+      height: 6px;
+      background: #1e293b;
+      border-radius: 99px;
+      overflow: hidden;
+      margin-bottom: 6px;
+    }
+
+    .vital-bar:last-child {
+      margin-bottom: 0;
+    }
+
+    .vital-fill {
+      height: 100%;
+      border-radius: 99px;
+      transition: width 0.12s linear;
+    }
+
+    #mission-card {
+      flex: 1;
+      max-width: 440px;
+    }
+
+    .mission-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      font-weight: 800;
+      color: #38bdf8;
+      margin-bottom: 3px;
+    }
+
+    #mission-sub {
+      font-size: 11px;
+      color: #cbd5e1;
+      margin-bottom: 6px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #mission-bar {
+      width: 100%;
+      height: 6px;
+      background: #1e293b;
+      border-radius: 99px;
+      overflow: hidden;
+    }
+
+    #mission-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #0284c7, #38bdf8);
+      transition: width 0.2s ease;
+    }
+
+    #top-right-pills {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 6px;
+      pointer-events: auto;
+    }
+
+    .pill-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .hud-pill {
+      background: rgba(15, 23, 42, 0.88);
+      border: 1px solid rgba(51, 65, 85, 0.9);
+      border-radius: 10px;
+      padding: 6px 10px;
+      font-size: 11px;
+      font-weight: 800;
+      color: #f8fafc;
+      cursor: pointer;
+    }
+
+    #bag-btn {
+      background: #0f172a;
+      border-color: #38bdf8;
+      color: #e0f2fe;
+    }
+
+    /* Minimap */
+    #minimap-wrap {
+      position: fixed;
+      top: calc(max(10px, env(safe-area-inset-top)) + 98px);
+      left: max(12px, env(safe-area-inset-left));
+      width: 136px;
+      height: 136px;
+      border-radius: 14px;
+      overflow: hidden;
+      border: 1.5px solid rgba(71, 85, 105, 0.9);
+      background: #0f172a;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+      z-index: 20;
+    }
+
+    #minimap {
+      width: 136px;
+      height: 136px;
+      display: block;
+    }
+
+    /* Action Buttons (Right Thumb Cluster) */
+    #action-cluster {
+      position: fixed;
+      right: max(16px, env(safe-area-inset-right));
+      bottom: max(18px, env(safe-area-inset-bottom));
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 10px;
+      z-index: 25;
+      pointer-events: auto;
+    }
+
+    .action-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .circle-btn {
+      width: 68px;
+      height: 68px;
+      border-radius: 50%;
+      border: 2px solid rgba(255, 255, 255, 0.25);
+      background: rgba(15, 23, 42, 0.88);
+      color: #f8fafc;
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 1.15;
+      text-align: center;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 4px;
+      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+      cursor: pointer;
+    }
+
+    .circle-btn.visible {
+      display: flex;
+    }
+
+    #sprint-btn {
+      display: flex;
+      border-color: rgba(56, 189, 248, 0.55);
+      background: rgba(15, 23, 42, 0.88);
+    }
+
+    #sprint-btn:active {
+      background: #0284c7;
+      border-color: #7dd3fc;
+    }
+
+    #door-btn {
+      border-color: #f59e0b;
+      background: rgba(120, 53, 15, 0.92);
+    }
+
+    #grab-btn {
+      border-color: #4ade80;
+      background: rgba(20, 83, 45, 0.92);
+    }
+
+    #repair-btn {
+      border-color: #38bdf8;
+      background: rgba(3, 105, 161, 0.92);
+    }
+
+    #special-btn {
+      border-color: #f472b6;
+      background: rgba(131, 24, 67, 0.92);
+    }
+
+    /* Modals (Archetype, Backpack, Crafting, Game Over) */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(9, 13, 20, 0.82);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+      z-index: 50;
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+    }
+
+    .modal-backdrop.open {
+      display: flex;
+    }
+
+    #archetype-modal {
+      display: flex;
+    }
+
+    #archetype-modal.hidden {
+      display: none;
+    }
+
+    .modal-card {
+      width: 100%;
+      max-width: 540px;
+      max-height: 82vh;
+      overflow-y: auto;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 16px;
+      padding: 18px;
+      box-shadow: 0 20px 45px rgba(0, 0, 0, 0.65);
+    }
+
+    .arch-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .arch-btn {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 12px;
+      text-align: left;
+      color: #f8fafc;
+      cursor: pointer;
+    }
+
+    .arch-btn:active {
+      border-color: #38bdf8;
+      background: #0f172a;
+    }
+
+    .arch-title {
+      font-size: 13px;
+      font-weight: 800;
+      color: #38bdf8;
+      margin-bottom: 4px;
+    }
+
+    .arch-desc {
+      font-size: 11px;
+      color: #cbd5e1;
+      line-height: 1.35;
+    }
+
+    .bag-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 10px;
+      padding: 9px 12px;
+      margin-bottom: 8px;
+    }
+
+    .bag-item button {
+      border: none;
+      border-radius: 8px;
+      padding: 7px 11px;
+      font-size: 11px;
+      font-weight: 800;
+      color: #fff;
+      background: #0284c7;
+      cursor: pointer;
+    }
+
+    /* Toast Notification */
+    #toast {
+      position: fixed;
+      bottom: calc(max(18px, env(safe-area-inset-bottom)) + 150px);
+      left: 50%;
+      transform: translateX(-50%) translateY(10px);
+      background: rgba(15, 23, 42, 0.94);
+      border: 1px solid #38bdf8;
+      color: #f8fafc;
+      padding: 8px 14px;
+      border-radius: 99px;
+      font-size: 12px;
+      font-weight: 700;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.18s ease, transform 0.18s ease;
+      z-index: 60;
+      white-space: nowrap;
+      max-width: 92vw;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    #toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    #gameover {
+      display: none;
+    }
+
+    #gameover.show {
+      display: flex;
+    }
+  </style>
 </head>
 <body>
-  <!-- Archetype Selection Overlay -->
-  <div id="archetype-modal">
-    <div class="modal-card">
-      <h1>SELECT SURVIVOR ARCHETYPE</h1>
-      <p>Deploy into the 128×128 Quarry Camp Safe Hub, craft gear, defeat Ring 3 Juggernauts, and launch the Iron Convoy.</p>
-      <div class="archetype-grid">
-        <button class="arch-btn" data-arch="bruiser">
-          <span class="arch-title">🛡️ THE BRUISER</span>
-          <span class="arch-sub">140 HP • Starts with Crowbar • +35% Melee DMG &amp; Knockback</span>
-        </button>
-        <button class="arch-btn" data-arch="medic">
-          <span class="arch-title">🩺 THE MEDIC</span>
-          <span class="arch-sub">105 HP • Starts with 2x Bandages • Team Regen Aura</span>
-        </button>
-        <button class="arch-btn" data-arch="scavenger">
-          <span class="arch-title">🗝️ THE SCAVENGER</span>
-          <span class="arch-sub">100 HP • 10 Bag Slots • Unlimited Lockpicks &amp; Hauler Speed</span>
-        </button>
-        <button class="arch-btn" data-arch="marksman">
-          <span class="arch-title">🎯 THE MARKSMAN</span>
-          <span class="arch-sub">95 HP • Starts with 9mm Pistol • +25% Ranged Reach &amp; Crit</span>
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Quarry Crafting Workbench & Camp Professions Modal -->
-  <div id="craft-modal">
-    <div class="modal-card">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-        <h1 style="margin:0;">⚒️ QUARRY WORKBENCH &amp; CAMP</h1>
-        <button id="close-craft-btn" class="hud-btn">✕ CLOSE</button>
-      </div>
-      <p id="craft-resources">Scrap Credits: 0 • Rescued Specialists: 0</p>
-      <div class="archetype-grid" id="craft-grid"></div>
-    </div>
-  </div>
-
-  <!-- Top HUD -->
-  <div id="hud">
-    <div class="hud-left">
-      <div class="stats-panel">
-        <div class="bar-row">
-          <div class="bar-label"><span id="arch-badge">SURVIVOR</span><span id="hp-val">100/100</span></div>
-          <div class="bar-track"><div id="hp-fill" class="bar-fill"></div></div>
-        </div>
-        <div class="bar-row">
-          <div class="bar-label"><span>STAMINA</span><span id="stam-val">100%</span></div>
-          <div class="bar-track"><div id="stam-fill" class="bar-fill"></div></div>
-        </div>
-        <div class="bar-row">
-          <div class="bar-label"><span>FULLNESS</span><span id="food-val">85%</span></div>
-          <div class="bar-track"><div id="food-fill" class="bar-fill"></div></div>
-        </div>
-      </div>
-
-      <canvas id="minimap" width="136" height="136"></canvas>
-    </div>
-
-    <div id="mission-box" class="mission-panel">
-      <div class="mission-title">🚛 IRON CONVOY: <span id="mission-pct">0 / 20 SUPPLIES</span> • <span id="spec-count" style="color:#f472b6;">0 NPCs</span></div>
-      <div id="mission-sub" class="mission-sub">Scavenge Supplies, Heavy Crates &amp; Rescue Flares</div>
-      <div class="bar-track" style="margin-top:5px;"><div id="mission-fill" class="bar-fill"></div></div>
-    </div>
-
-    <div class="top-right">
-      <div class="pill" id="net-status">⚪ SOLO MODE</div>
-      <div class="pill" id="scrap-pill" style="color:#fbbf24;">⚙️ 2 SCRAP</div>
-      <button id="rotate-btn" class="hud-btn" title="Rotate Camera 90°">🔄 CAM</button>
-      <div class="pill" id="coords">Quarry Hub • 510, 510</div>
-      <button id="bag-toggle" class="hud-btn">🎒 BAG (<span id="bag-count">0/8</span>)</button>
-    </div>
-  </div>
-
-  <div id="toast">Picked up item</div>
-
-  <div id="bag-drawer">
-    <div class="bag-header">
-      <span>BACKPACK</span>
-      <span id="bag-slots-label" style="color:#94a3b8;">0 / 8 Slots</span>
-    </div>
-    <div id="bag-list"></div>
-  </div>
-
-  <div id="actions">
-    <div id="special-btn" class="action-btn">RESCUE</div>
-    <div id="door-btn" class="action-btn">DOOR</div>
-    <div id="repair-btn" class="action-btn">LOAD<br/>CONVOY</div>
-    <div id="grab-btn" class="action-btn">GRAB</div>
-    <div id="sprint-btn" class="action-btn">SPRINT</div>
-  </div>
-
-  <div id="gameover">
-    <h1>YOU DIED</h1>
-    <p>Keep your fullness up and watch your threat ring level.</p>
-    <button onclick="location.reload()">Respawn at Quarry</button>
-  </div>
-
   <canvas id="game"></canvas>
 
-  <script>
-    window.addEventListener('error', (e) => {
-      document.body.insertAdjacentHTML(
-        'beforeend',
-        `<div style="position:fixed;bottom:10px;left:10px;right:10px;background:#7f1d1d;color:#fecaca;padding:10px;border-radius:8px;font-size:12px;z-index:99;">JS Error: ${e.message} (${e.filename}:${e.lineno})</div>`
-      );
-    });
+  <!-- Top HUD -->
+  <div id="hud-top">
+    <div id="vitals-card" class="hud-card">
+      <div class="vital-row">
+        <span id="arch-badge" style="color:#38bdf8;">BRUISER</span>
+        <span id="hp-val">140/140</span>
+      </div>
+      <div class="vital-bar">
+        <div id="hp-fill" class="vital-fill" style="width:100%;background:#ef4444;"></div>
+      </div>
 
+      <div class="vital-row">
+        <span style="color:#94a3b8;">STAMINA</span>
+        <span id="stam-val">100%</span>
+      </div>
+      <div class="vital-bar">
+        <div id="stam-fill" class="vital-fill" style="width:100%;background:#38bdf8;"></div>
+      </div>
+
+      <div class="vital-row">
+        <span style="color:#94a3b8;">FULLNESS</span>
+        <span id="food-val">85%</span>
+      </div>
+      <div class="vital-bar">
+        <div id="food-fill" class="vital-fill" style="width:85%;background:#f59e0b;"></div>
+      </div>
+    </div>
+
+    <div id="mission-card" class="hud-card">
+      <div class="mission-header">
+        <span>🚛 <span id="mission-pct">0 / 20 SUPPLIES</span></span>
+        <span id="spec-count" style="color:#f472b6;">0 NPCs</span>
+      </div>
+      <div id="mission-sub">Search Downtown (1125, 916) for Police Radios or scavenge supplies</div>
+      <div id="mission-bar">
+        <div id="mission-fill"></div>
+      </div>
+    </div>
+
+    <div id="top-right-pills">
+      <div class="pill-row">
+        <div id="net-pill" class="hud-pill" style="color:#4ade80;">🟢 1 ONLINE</div>
+        <div id="scrap-pill" class="hud-pill">⚙️ 2 SCRAP</div>
+        <button id="rotate-btn" class="hud-pill">🔄 CAM</button>
+        <div id="coords" class="hud-pill" style="color:#4ade80;">Quarry Hub • 1008,1460</div>
+      </div>
+      <div class="pill-row">
+        <button id="bag-btn" class="hud-pill">🎒 BAG (0/8)</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Minimap (Tap to open World Atlas & Editor) -->
+  <div id="minimap-wrap">
+    <canvas id="minimap" width="136" height="136"></canvas>
+  </div>
+
+  <!-- Right-Hand Action Buttons -->
+  <div id="action-cluster">
+    <div class="action-row">
+      <button id="special-btn" class="circle-btn">SCAN<br />RADIO</button>
+      <button id="repair-btn" class="circle-btn">LOAD<br />CONVOY</button>
+    </div>
+    <div class="action-row">
+      <button id="grab-btn" class="circle-btn">GRAB</button>
+      <button id="door-btn" class="circle-btn">OPEN<br />DOOR</button>
+      <button id="sprint-btn" class="circle-btn">SPRINT</button>
+    </div>
+  </div>
+
+  <!-- Archetype Selection Modal -->
+  <div id="archetype-modal" class="modal-backdrop">
+    <div class="modal-card">
+      <div style="font-size:17px;font-weight:900;color:#38bdf8;letter-spacing:0.4px;">
+        SELECT SURVIVOR ARCHETYPE
+      </div>
+      <div style="font-size:12px;color:#94a3b8;margin-top:4px;line-height:1.4;">
+        Deploy into the Rockmart Quarry Safe Hub, craft gear, rescue specialists, and launch the Iron Convoy.
+      </div>
+      <div class="arch-grid">
+        <button class="arch-btn" data-arch="bruiser">
+          <div class="arch-title">🛡️ THE BRUISER</div>
+          <div class="arch-desc">140 HP • Starts with Crowbar • +35% Melee DMG &amp; Knockback</div>
+        </button>
+        <button class="arch-btn" data-arch="medic">
+          <div class="arch-title">🩺 THE MEDIC</div>
+          <div class="arch-desc">105 HP • Starts with 2x Bandages • Team Regen Aura</div>
+        </button>
+        <button class="arch-btn" data-arch="scavenger">
+          <div class="arch-title">🗝️ THE SCAVENGER</div>
+          <div class="arch-desc">100 HP • 10 Bag Slots • Unlimited Lockpicks &amp; Hauler Speed</div>
+        </button>
+        <button class="arch-btn" data-arch="marksman">
+          <div class="arch-title">🎯 THE MARKSMAN</div>
+          <div class="arch-desc">95 HP • Starts with 9mm Pistol • +25% Ranged Reach &amp; Crit</div>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Backpack Modal -->
+  <div id="bag-modal" class="modal-backdrop">
+    <div class="modal-card" id="bag-list"></div>
+  </div>
+
+  <!-- Quarry Workbench Crafting Modal -->
+  <div id="craft-modal" class="modal-backdrop">
+    <div class="modal-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid #334155;">
+        <span style="font-weight:800;font-size:13px;color:#fbbf24;">🛠️ QUARRY WORKBENCH</span>
+        <button id="close-craft-btn" style="background:#ef4444;color:#fff;border:none;border-radius:8px;padding:6px 12px;font-weight:800;font-size:12px;cursor:pointer;">✕ CLOSE</button>
+      </div>
+      <div id="craft-list"></div>
+    </div>
+  </div>
+
+  <!-- Game Over / Act Complete Modal -->
+  <div id="gameover" class="modal-backdrop">
+    <div class="modal-card" style="text-align:center;">
+      <h1 style="margin:0 0 8px 0;font-size:22px;color:#ef4444;">YOU DIED</h1>
+      <p style="margin:0 0 16px 0;font-size:13px;color:#cbd5e1;line-height:1.45;">
+        Return to the Quarry Campfire to heal up between town runs.
+      </p>
+      <button style="background:#0284c7;color:#fff;border:none;border-radius:10px;padding:10px 18px;font-size:13px;font-weight:800;cursor:pointer;">
+        Respawn at Quarry
+      </button>
+    </div>
+  </div>
+
+  <div id="toast"></div>
+
+  <script>
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js');
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
     }
   </script>
   <script type="module" src="./js/main.js"></script>
